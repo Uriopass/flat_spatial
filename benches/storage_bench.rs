@@ -161,6 +161,12 @@ fn maintain(c: &mut Criterion) {
 }
 
 fn simple_bench() {
+    let t = maintain_densegrid(10, 10_000_000);
+    println!("maintain dense simple 10M: {}ms", t.as_millis());
+
+    let t = maintain_kdtree_bulk(10_000_000);
+    println!("maintain kdtree bulk simple 10M: {}ms", t.as_millis());
+
     let g5 = query_setup(10);
     let t = query_5_densegrid(&g5, 1000000);
     println!("query 5 dense simple 1M: {}ms", t.as_millis());
@@ -176,12 +182,6 @@ fn simple_bench() {
 
     let t = query_5_kdtree(&tree, 1000000);
     println!("query 5 kdtree simple 1M: {}ms", t.as_millis());
-
-    let t = maintain_densegrid(10, 10_000_000);
-    println!("maintain dense simple 10M: {}ms", t.as_millis());
-
-    let t = maintain_kdtree_bulk(10_000_000);
-    println!("maintain kdtree bulk simple 10M: {}ms", t.as_millis());
 }
 
 criterion_group!(benches,maintain, query);

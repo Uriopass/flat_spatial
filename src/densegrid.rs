@@ -89,7 +89,7 @@ pub struct DenseGridCell {
 ///
 /// {
 ///     let mut before = g.query_around([0.0, 0.0], 5.0).map(|(id, _pos)| id); // Queries for objects around a given point
-///     assert_eq!(before.next(), Some(&a));
+///     assert_eq!(before.next(), Some(a));
 ///     assert_eq!(g.get(a).unwrap().1, &0);
 /// }
 /// let b = g.insert([0.0, 0.0], 1); // Inserts a new element, assigning a new unique and stable handle, with data: 1
@@ -102,7 +102,7 @@ pub struct DenseGridCell {
 /// assert_eq!(g.handles().collect::<Vec<_>>(), vec![b]); // We check that the "a" object has been removed
 ///
 /// let after: Vec<_> = g.query_around([0.0, 0.0], 5.0).map(|(id, _pos)| id).collect(); // And that b is query-able
-/// assert_eq!(after, vec![&b]);
+/// assert_eq!(after, vec![b]);
 ///
 /// assert_eq!(g.get(b).unwrap().1, &1); // We also check that b still has his data associated
 /// assert_eq!(g.get(a), None); // But that a doesn't exist anymore
@@ -140,7 +140,7 @@ pub struct DenseGridCell {
 ///         let (pos, _car) = g.get(h).unwrap();
 ///         let mut collided = false;
 ///         for (other_h, other_pos) in g.query_around(pos, 8.0) {
-///             if other_h == &h {
+///             if other_h == h {
 ///                 continue;
 ///             }
 ///             if (other_pos.x - pos.x).powi(2) + (other_pos.y - pos.y).powi(2) < 2.0 * 2.0 {
@@ -266,9 +266,8 @@ impl<O: Copy> DenseGrid<O> {
         let old_id = obj.cell_id;
         obj.cell_id = new_cell_id;
         obj.pos = pos;
-        match obj.state {
-            ObjectState::Removed => {}
-            _ => obj.state = ObjectState::NewPos,
+        if obj.state != ObjectState::Removed {
+            obj.state = ObjectState::NewPos
         }
 
         self.get_cell_mut(old_id).dirty = true;
@@ -309,9 +308,12 @@ impl<O: Copy> DenseGrid<O> {
     /// assert!(g.get(h).is_none());
     /// ```
     pub fn maintain(&mut self) {
-        let cells = &mut self.cells;
-        let objects = &mut self.objects;
-        let to_relocate = &mut self.to_relocate;
+        let Self {
+            cells,
+            objects,
+            to_relocate,
+            ..
+        } = self;
 
         for (id, cell) in cells.iter_mut().filter(|x| x.dirty).enumerate() {
             cell.dirty = false;
@@ -391,10 +393,10 @@ impl<O: Copy> DenseGrid<O> {
     ///
     /// let around: Vec<_> = g.query_around([2.0, 2.0], 5.0).map(|(id, _pos)| id).collect();
     /// 
-    /// assert_eq!(vec![&a], around);
+    /// assert_eq!(vec![a], around);
     /// ```
     #[rustfmt::skip]
-    pub fn query_around(&self, pos: impl Into<Point2<f32>>, radius: f32) -> impl Iterator<Item=&CellObject> {
+    pub fn query_around(&self, pos: impl Into<Point2<f32>>, radius: f32) -> impl Iterator<Item=CellObject> + '_ {
         let pos = pos.into();
         let cell = self.get_cell_id(pos) as i32;
 
@@ -430,7 +432,7 @@ impl<O: Copy> DenseGrid<O> {
                     let x = pos_obj.x - pos.x;
                     let y = pos_obj.y - pos.y;
                     x * x + y * y < radius2
-                })
+                }).copied()
             })
         })
     }
@@ -447,10 +449,10 @@ impl<O: Copy> DenseGrid<O> {
     ///
     /// let around: Vec<_> = g.query_aabb([-1.0, -1.0], [1.0, 1.0]).map(|(id, _pos)| id).collect();
     /// 
-    /// assert_eq!(vec![&a], around);
+    /// assert_eq!(vec![a], around);
     /// ```
     #[rustfmt::skip]
-    pub fn query_aabb(&self, aa: impl Into<Point2<f32>>, bb: impl Into<Point2<f32>>) -> impl Iterator<Item=&CellObject> {
+    pub fn query_aabb(&self, aa: impl Into<Point2<f32>>, bb: impl Into<Point2<f32>>) -> impl Iterator<Item=CellObject> + '_ {
         let aa = aa.into();
         let bb = bb.into();
 
@@ -482,12 +484,34 @@ impl<O: Copy> DenseGrid<O> {
                 cell.objs.iter().filter(move |(_, pos_obj)| {
                     (pos_obj.x >= ll.x) && (pos_obj.x <= ur.x) &&
                     (pos_obj.y >= ll.y) && (pos_obj.y <= ur.y)
-                })
+                }).copied()
             })
         })
     }
 
+    /// Allows to look directly at what's in a cell covering a specific position
+    ///
+    /// # Example
+    /// ```rust
+    /// use flat_spatial::DenseGrid;
+    ///
+    /// let mut g: DenseGrid<()> = DenseGrid::new(10);
+    /// let a = g.insert([2.0, 2.0], ());
+    ///
+    /// let around = g.get_cell([1.0, 1.0]);
+    ///
+    /// assert_eq!(&vec![(a, [2.0, 2.0].into())], around);
+    /// ```
+    pub fn get_cell(&mut self, pos: impl Into<mint::Point2<f32>>) -> &Vec<CellObject> {
+        &self
+            .cells
+            .get(self.get_cell_id(pos.into()))
+            .expect("get_cell error")
+            .objs
+    }
+
     /// Returns the (x, y, width, height) tuple representing the current allocated rect
+    /// (x, y) are in absolute units and (width, height) are in cells
     pub fn get_rect(&self) -> (i32, i32, i32, i32) {
         (self.start_x, self.start_y, self.width, self.height)
     }
