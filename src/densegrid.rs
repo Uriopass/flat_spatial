@@ -108,63 +108,6 @@ pub struct DenseGridCell {
 /// assert_eq!(g.get(a), None); // But that a doesn't exist anymore
 /// ```
 ///
-/// Here is a bit more complicated example, which shows how it can be used in a video game
-/// ```rust
-/// use flat_spatial::DenseGrid;
-///
-/// // A structure has to be copy in order to be in a dense grid
-/// #[derive(Copy, Clone)]
-/// struct Car {
-///     direction: [f32; 2],
-/// }
-///
-/// // Creates the grid with cell size 10
-/// let mut g: DenseGrid<Car> = DenseGrid::new(10);
-///
-/// // create objects in the range x: [-50..50], y: [-50..50]
-/// for _ in 0..100 {
-///     let pos = [100.0 * rand::random::<f32>() - 50.0, 100.0 * rand::random::<f32>() - 50.0];
-///     let magn = (pos[0].powi(2) + pos[1].powi(2)).sqrt();
-///     g.insert(
-///         pos,
-///         Car {
-///             direction: [-pos[0] / magn, -pos[1] / magn],
-///         },
-///     );
-/// }
-///
-/// fn update_loop(g: &mut DenseGrid<Car>) {
-///     let handles: Vec<_> = g.handles().collect();
-///     // Handle collisions (remove on collide)
-///     for &h in &handles {
-///         let (pos, _car) = g.get(h).unwrap();
-///         let mut collided = false;
-///         for (other_h, other_pos) in g.query_around(pos, 8.0) {
-///             if other_h == h {
-///                 continue;
-///             }
-///             if (other_pos.x - pos.x).powi(2) + (other_pos.y - pos.y).powi(2) < 2.0 * 2.0 {
-///                 collided = true;
-///                 break;
-///             }
-///         }
-///         
-///         if collided {
-///             g.remove(h);
-///         }
-///     }
-///
-///     // Update positions
-///     for &h in &handles {
-///         let (pos, car) = g.get(h).unwrap();
-///         g.set_position(h, [pos.x + car.direction[0], pos.y + car.direction[1]])
-///     }
-///
-///     // Handle position updates and removals
-///     g.maintain();
-/// }
-/// ```
-///
 /// ## Schema
 /// Here is a schema showing a bit more visually how the structure works
 ///
@@ -514,6 +457,18 @@ impl<O: Copy> DenseGrid<O> {
     /// (x, y) are in absolute units and (width, height) are in cells
     pub fn get_rect(&self) -> (i32, i32, i32, i32) {
         (self.start_x, self.start_y, self.width, self.height)
+    }
+
+    /// Returns the number of objects currently available
+    /// (removals that were not confirmed with maintain() are still counted)
+    pub fn len(&self) -> usize {
+        self.objects.len()
+    }
+
+    /// Checks if the grid contains objects or not
+    /// (removals that were not confirmed with maintain() are still counted)
+    pub fn is_empty(&self) -> bool {
+        self.objects.is_empty()
     }
 
     fn check_resize(&mut self, pos: Point2<f32>) {
