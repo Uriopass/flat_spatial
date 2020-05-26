@@ -15,6 +15,9 @@ repository = "https://github.com/Uriopass/flat_spatial"
 slotmap = {version = "0.4", default-features = false}
 mint = "0.5.5"
 
+[[example]]
+name = "collision_detector"
+
 [dev-dependencies]
 criterion = "0.3"
 rstar = "0.8.0"
