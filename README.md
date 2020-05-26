@@ -20,9 +20,36 @@ or object removal based on handles (using `slotmap`).
 
 It is recommended to have queries roughly the same size as the cell size.
 
-Here is an example of a densegrid usage for a (very simple) collision detector:
+### Benchmarks
+
+Here's some basic benchmarks of densegrid vs rstar's r-trees using criterion:
+
+The first one adds 100'000 random points on a 500x500 square and perform _n_ random 
+queries of radius 5.
+
+denseGridN means the structure is a DenseGrid where cells are of size N.  
+
+Time is shown _per query_, lower is better:
+
+![query benchmark](img/query.svg)
+
+The second benchmark tries to change the position of _n_ objects in a 500x500 square.
+
+For an r-tree, it means building it up from scratch.   
+For a DenseGrid, set_position is used on all handles with a new random position
+then maintain() is called.
+
+Time is shown _per object_, lower is better:
+
+![maintain benchmark](img/maintain.svg)
+
+_Note: In both benchmarks, r-trees and densegrids are linear 
+in number of objects/queries. That's why it makes sense to show the average time
+per object/per query._
 
 ### Example
+
+Here is an example of a densegrid usage for a (very simple) collision detector:
 
 ```Rust
 use flat_spatial::DenseGrid;
