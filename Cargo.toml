@@ -8,6 +8,7 @@ description = "Flat spatial partitionning algorithms and data structures"
 license-file = "LICENSE"
 readme = "README.md"
 categories = ["algorithms", "graphics", "data-structures", "game-engines"]
+exclude = ["img/*"]
 
 [dependencies]
 slotmap = {version = "0.4", default-features = false}
