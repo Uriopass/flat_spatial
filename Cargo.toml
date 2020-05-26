@@ -3,10 +3,11 @@ name = "flat_spatial"
 version = "0.1.0"
 authors = ["Douady Pâris <paris.douady@hotmail.fr>"]
 edition = "2018"
-keywords = ["algorithms", "spatial", "geometry", "grid", "data-structure"]
+keywords = ["algorithms", "spatial", "geometry", "grid", "data-structure", "graphics", "data-structures"]
 description = "Flat spatial partitionning algorithms and data structures"
-license = "MIT"
+license-file = "LICENSE"
 readme = "README.md"
+categories = ["algorithms", "graphics", "data-structures", "game-engines"]
 
 [dependencies]
 slotmap = {version = "0.4", default-features = false}
