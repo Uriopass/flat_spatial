@@ -1,11 +1,11 @@
 [package]
 name = "flat_spatial"
-version = "0.1.1"
+version = "0.1.2"
 authors = ["Douady Pâris <paris.douady@hotmail.fr>"]
 edition = "2018"
 keywords = ["algorithms", "spatial", "geometry", "grid", "data-structures"]
 description = "Flat spatial partitionning algorithms and data structures"
-license-file = "LICENSE"
+license = "MIT"
 readme = "README.md"
 categories = ["algorithms", "graphics", "data-structures", "game-engines"]
 exclude = ["img/*"]
