@@ -1,5 +1,9 @@
 # flat_spatial
 
+[![Build Status](https://github.com/Uriopass/flat_spatial/workflows/Rust/badge.svg?branch=master)](https://github.com/Uriopass/flat_spatial/actions)
+[![Crates.io](https://img.shields.io/crates/v/flat_spatial.svg)](https://crates.io/crates/flat_spatial)
+[![Docs.rs](https://docs.rs/flat_spatial/badge.svg)](https://docs.rs/flat_spatial)
+
 flat_spatial is a crate dedicated to dynamic spatial partitioning structures that are not based on trees
 (which are recursive) but on simple flat structures such as a grid/hashmap of cells.  
 Using grids or other flat structures makes for very fast updates (constant time) and
