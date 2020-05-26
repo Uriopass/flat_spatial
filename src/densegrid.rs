@@ -4,11 +4,12 @@ use slotmap::SlotMap;
 use std::cmp::{max, min};
 
 new_key_type! {
-    /// This handle is used to modify the store object or to update the position
+    /// This handle is used to modify the associated object or to update its position.
+    /// It is returned by the _insert_ method of a DenseGrid.
     pub struct DenseGridHandle;
 }
 
-/// State of an object, maintain() updates the internals of the gridstore and resets this to Unchanged
+/// State of an object, maintain() updates the internals of the densegrid and resets this to Unchanged
 #[derive(Clone, Copy, PartialEq, Eq)]
 enum ObjectState {
     Unchanged,
@@ -28,7 +29,7 @@ struct StoreObject<O: Copy> {
 
 type CellObject = (DenseGridHandle, Point2<f32>);
 
-/// A single cell of the store, can be empty
+/// A single cell of the densegrid, can be empty
 #[derive(Default, Clone)]
 pub struct DenseGridCell {
     pub objs: Vec<CellObject>,
@@ -273,7 +274,7 @@ impl<O: Copy> DenseGrid<O> {
         self.get_cell_mut(old_id).dirty = true;
     }
 
-    /// Lazily removes an object from the store.
+    /// Lazily removes an object from the grid.
     /// This won't be taken into account until maintain() is called.  
     ///
     /// # Example
