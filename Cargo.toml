@@ -1,6 +1,6 @@
 [package]
 name = "flat_spatial"
-version = "0.1.3"
+version = "0.1.4"
 authors = ["Douady Pâris <paris.douady@hotmail.fr>"]
 edition = "2018"
 keywords = ["algorithms", "spatial", "geometry", "grid", "data-structures"]
@@ -14,6 +14,7 @@ repository = "https://github.com/Uriopass/flat_spatial"
 [dependencies]
 slotmap = {version = "0.4", default-features = false}
 mint = "0.5.5"
+retain_mut = "0.1.1"
 
 [[example]]
 name = "collision_detector"

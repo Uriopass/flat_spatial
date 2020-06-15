@@ -1,4 +1,5 @@
 use mint::Point2;
+use retain_mut::RetainMut;
 use slotmap::new_key_type;
 use slotmap::SlotMap;
 use std::cmp::{max, min};
@@ -261,7 +262,7 @@ impl<O: Copy> DenseGrid<O> {
         for (id, cell) in cells.iter_mut().filter(|x| x.dirty).enumerate() {
             cell.dirty = false;
 
-            for _ in my_drain_filter(&mut cell.objs, |(obj_id, obj_pos)| {
+            cell.objs.retain_mut(|(obj_id, obj_pos)| {
                 let store_obj = objects.get_mut(*obj_id).unwrap();
                 match store_obj.state {
                     ObjectState::NewPos => {
@@ -271,15 +272,15 @@ impl<O: Copy> DenseGrid<O> {
                         if relocate {
                             to_relocate.push((store_obj.cell_id, (*obj_id, *obj_pos)));
                         }
-                        relocate
+                        !relocate
                     }
                     ObjectState::Removed => {
                         objects.remove(*obj_id);
-                        true
+                        false
                     }
-                    _ => false,
+                    _ => true,
                 }
-            }) {}
+            })
         }
 
         for (cell_id, obj) in to_relocate.drain(..) {
@@ -683,81 +684,5 @@ mod tests {
 
         let q: Vec<_> = g.query_around([0.0, 1000.0], 5.0).map(|x| x.0).collect();
         assert_eq!(q, vec![b]);
-    }
-}
-
-// Taken from stdlib since it's not stable yet (but it has been 2 years and there's bikeshedding so I'm tired of waiting)
-
-fn my_drain_filter<T, F>(vec: &mut Vec<T>, filter: F) -> MyDrainFilter<T, F>
-where
-    F: FnMut(&mut T) -> bool,
-{
-    let old_len = vec.len();
-
-    // Guard against us getting leaked (leak amplification)
-    unsafe {
-        vec.set_len(0);
-    }
-
-    MyDrainFilter {
-        vec,
-        idx: 0,
-        del: 0,
-        old_len,
-        pred: filter,
-    }
-}
-
-/// An iterator produced by calling `drain_filter` on Vec.
-#[derive(Debug)]
-struct MyDrainFilter<'a, T: 'a, F>
-where
-    F: FnMut(&mut T) -> bool,
-{
-    vec: &'a mut Vec<T>,
-    idx: usize,
-    del: usize,
-    old_len: usize,
-    pred: F,
-}
-
-impl<'a, T, F> Iterator for MyDrainFilter<'a, T, F>
-where
-    F: FnMut(&mut T) -> bool,
-{
-    type Item = T;
-
-    fn next(&mut self) -> Option<T> {
-        unsafe {
-            while self.idx != self.old_len {
-                let i = self.idx;
-                self.idx += 1;
-                let v = std::slice::from_raw_parts_mut(self.vec.as_mut_ptr(), self.old_len);
-                if (self.pred)(&mut v[i]) {
-                    self.del += 1;
-                    return Some(std::ptr::read(&v[i]));
-                } else if self.del > 0 {
-                    v.swap(i - self.del, i);
-                }
-            }
-            None
-        }
-    }
-
-    fn size_hint(&self) -> (usize, Option<usize>) {
-        (0, Some(self.old_len - self.idx))
-    }
-}
-
-impl<'a, T, F> Drop for MyDrainFilter<'a, T, F>
-where
-    F: FnMut(&mut T) -> bool,
-{
-    fn drop(&mut self) {
-        for _ in self.by_ref() {}
-
-        unsafe {
-            self.vec.set_len(self.old_len - self.del);
-        }
     }
 }
