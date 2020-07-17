@@ -4,6 +4,7 @@ use mint::Point2;
 use slotmap::SlotMap;
 use std::collections::HashMap;
 
+/// The storage trait, implement this if you want to use a custom point storage for the Grid.
 pub trait Storage {
     type Idx: Copy;
     type IdxIter: Iterator<Item = Self::Idx>;
@@ -31,6 +32,8 @@ pub trait Storage {
     fn get_cell_id(&self, p: Point2<f32>) -> Self::Idx;
 }
 
+/// DenseStorage stores cells in a Vec to be used for a Grid.
+/// It implements the Storage trait.
 pub struct DenseStorage {
     cell_size: i32,
     start_x: i32,
@@ -220,8 +223,9 @@ impl Iterator for DenseIter {
     }
 }
 
-/// SparseStorage stores cells in a HashMap.
+/// SparseStorage stores cells in a HashMap to be used in a Grid.
 /// It is Sparse because cells are eagerly allocated, and cleaned when they are empty.
+/// It implements the Storage trait.
 pub struct SparseStorage {
     cell_size: i32,
     cells: HashMap<(i32, i32), GridCell>,
