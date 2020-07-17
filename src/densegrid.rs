@@ -327,7 +327,7 @@ impl<O: Copy> DenseGrid<O> {
 
     /// Queries for all objects around a position within a certain radius.
     /// Try to keep the radius asked and the cell size of similar magnitude for better performance.
-    /// 
+    ///
     /// # Example
     /// ```rust
     /// use flat_spatial::DenseGrid;
@@ -336,7 +336,7 @@ impl<O: Copy> DenseGrid<O> {
     /// let a = g.insert([0.0, 0.0], ());
     ///
     /// let around: Vec<_> = g.query_around([2.0, 2.0], 5.0).map(|(id, _pos)| id).collect();
-    /// 
+    ///
     /// assert_eq!(vec![a], around);
     /// ```
     #[rustfmt::skip]
@@ -366,24 +366,25 @@ impl<O: Copy> DenseGrid<O> {
         let y2 = min(h - 1, y + rplus + top as i32);
 
         let radius2 = radius * radius;
-        (y1..y2 + 1).flat_map(move |y| {
-            (x1..x2 + 1).flat_map(move |x| {
-                let cell_id = y * self.width + x;
+        (y1..y2 + 1)
+            .flat_map(move |y| (x1..x2 + 1).map(move |x| (x, y)))
+            .map(move |(x, y)| y * self.width + x)
+            .flat_map(move |cell_id| {
                 // Safety: min and max boundaries just above
-                //         Works because of invariant self.cells.len() == height * width 
-                let cell = unsafe { &self.cells.get_unchecked(cell_id as usize) };
-                cell.objs.iter().filter(move |(_, pos_obj)| {
-                    let x = pos_obj.x - pos.x;
-                    let y = pos_obj.y - pos.y;
-                    x * x + y * y < radius2
-                }).copied()
+                //         Works because of invariant self.cells.len() == height * width
+                unsafe { self.cells.get_unchecked(cell_id as usize).objs.iter() }
             })
-        })
+            .filter(move |(_, pos_obj)| {
+                let x = pos_obj.x - pos.x;
+                let y = pos_obj.y - pos.y;
+                x * x + y * y < radius2
+            })
+            .copied()
     }
 
     /// Queries for all objects in an aabb (aka a rect).
     /// Try to keep the rect's width/height of similar magnitudes to the cell size for better performance.
-    /// 
+    ///
     /// # Example
     /// ```rust
     /// use flat_spatial::DenseGrid;
@@ -392,7 +393,7 @@ impl<O: Copy> DenseGrid<O> {
     /// let a = g.insert([0.0, 0.0], ());
     ///
     /// let around: Vec<_> = g.query_aabb([-1.0, -1.0], [1.0, 1.0]).map(|(id, _pos)| id).collect();
-    /// 
+    ///
     /// assert_eq!(vec![a], around);
     /// ```
     #[rustfmt::skip]
@@ -416,21 +417,22 @@ impl<O: Copy> DenseGrid<O> {
         let x1 = x1.max(0);
         let y1 = y1.max(0);
 
-        let x2 = x2.min(w-1);
-        let y2 = y2.min(h-1);
+        let x2 = x2.min(w - 1);
+        let y2 = y2.min(h - 1);
 
-        (y1..y2 + 1).flat_map(move |y| {
-            (x1..x2 + 1).flat_map(move |x| {
-                let cell_id = y * self.width + x;
+        (y1..y2 + 1)
+            .flat_map(move |y| (x1..x2 + 1).map(move |x| (x, y)))
+            .map(move |(x, y)| y * self.width + x)
+            .flat_map(move |cell_id| {
                 // Safety: min and max boundaries just above
-                //         Works because of invariant self.cells.len() == height * width 
-                let cell = unsafe { &self.cells.get_unchecked(cell_id as usize) };
-                cell.objs.iter().filter(move |(_, pos_obj)| {
-                    (pos_obj.x >= ll.x) && (pos_obj.x <= ur.x) &&
-                    (pos_obj.y >= ll.y) && (pos_obj.y <= ur.y)
-                }).copied()
+                //         Works because of invariant self.cells.len() == height * width
+                unsafe { self.cells.get_unchecked(cell_id as usize).objs.iter() }
             })
-        })
+            .filter(move |(_, pos_obj)| {
+                (pos_obj.x >= ll.x) && (pos_obj.x <= ur.x) &&
+                    (pos_obj.y >= ll.y) && (pos_obj.y <= ur.y)
+            })
+            .copied()
     }
 
     /// Allows to look directly at what's in a cell covering a specific position
