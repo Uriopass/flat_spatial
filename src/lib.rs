@@ -6,8 +6,13 @@
 //! DenseGrid uses a Vec of cells and SparseGrid a HashMap (so cells are lazily allocated).
 //!
 
-pub mod densegrid;
-pub mod sparsegrid;
+pub mod cell;
+pub mod grid;
+pub mod storage;
 
-pub use densegrid::DenseGrid;
-pub use sparsegrid::SparseGrid;
+pub use grid::Grid;
+use storage::DenseStorage;
+use storage::SparseStorage;
+
+pub type DenseGrid<O> = Grid<O, DenseStorage>;
+pub type SparseGrid<O> = Grid<O, SparseStorage>;

@@ -1,7 +1,7 @@
 fn main() {
-    use flat_spatial::DenseGrid;
+    use flat_spatial::Grid;
 
-    let mut g: DenseGrid<()> = DenseGrid::new(10);
+    let mut g: Grid<()> = Grid::new(10);
     let a = g.insert([3.0, 3.0], ());
     let _b = g.insert([12.0, -8.0], ());
 

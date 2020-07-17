@@ -1,18 +1,20 @@
+use crate::cell::CellObject;
+use crate::storage::{SparseStorage, Storage};
 use mint::Point2;
-use retain_mut::RetainMut;
 use slotmap::new_key_type;
 use slotmap::SlotMap;
-use std::collections::HashMap;
+
+pub type GridObjects<O, Idx> = SlotMap<GridHandle, StoreObject<O, Idx>>;
 
 new_key_type! {
     /// This handle is used to modify the associated object or to update its position.
-    /// It is returned by the _insert_ method of a SparseGrid.
-    pub struct SparseGridHandle;
+    /// It is returned by the _insert_ method of a Grid.
+    pub struct GridHandle;
 }
 
-/// State of an object, maintain() updates the internals of the sparseGrid and resets this to Unchanged
+/// State of an object, maintain() updates the internals of the grid and resets this to Unchanged
 #[derive(Clone, Copy, PartialEq, Eq)]
-enum ObjectState {
+pub enum ObjectState {
     Unchanged,
     NewPos,
     Removed,
@@ -20,38 +22,25 @@ enum ObjectState {
 
 /// The actual object stored in the store
 #[derive(Clone, Copy)]
-struct StoreObject<O: Copy> {
+pub struct StoreObject<O: Copy, Idx: Copy> {
     /// User-defined object to be associated with a value
     obj: O,
-    state: ObjectState,
-    pos: Point2<f32>,
-    cell_id: PosIdx,
+    pub state: ObjectState,
+    pub pos: Point2<f32>,
+    pub cell_id: Idx,
 }
 
-type PosIdx = (i32, i32);
-
-type CellObject = (SparseGridHandle, Point2<f32>);
-
-/// A single cell of the sparsegrid, can be empty
-#[derive(Default, Clone)]
-pub struct SparseGridCell {
-    pub objs: Vec<CellObject>,
-    pub dirty: bool,
-}
-
-/// SparseGrid is a point-based spatial partitioning structure that uses a HashMap of cells which acts as a
+/// Grid is a point-based spatial partitioning structure that uses a generic storage of cells which acts as a
 /// grid instead of a tree.
-/// It is Sparse because cells containing inserted points are eagerly allocated,
-/// and cleaned when they are empty.
 ///
 /// ## Fast queries
-/// In theory, SparseGrid should be faster than a quadtree/r-tree because it has no log costs
+/// In theory, Grid should be faster than a quadtree/r-tree because it has no log costs
 /// (calculating the cells around a point is trivial).  
 /// However, it only works if the cell size is adapted to the problem, much like how a tree has to
 /// be balanced to be efficient.  
 ///
 /// ## Dynamicity
-/// SparseGrid's big advantage is that it is dynamic, supporting lazy positions updates
+/// Grid's big advantage is that it is dynamic, supporting lazy positions updates
 /// and object removal in constant time. Once objects are in, there is almost no allocation happening.
 ///
 /// Compare that to most immutable spatial partitioning structures out there, which pretty much require
@@ -70,8 +59,8 @@ pub struct SparseGridCell {
 /// Since `()` is zero sized, it should probably optimize away a lot of the object managment code.
 ///
 /// ```rust
-/// use flat_spatial::SparseGrid;
-/// let mut g: SparseGrid<()> = SparseGrid::new(10);
+/// use flat_spatial::Grid;
+/// let mut g: Grid<()> = Grid::new(10);
 /// let handle = g.insert([0.0, 0.0], ());
 /// // Use handle however you want
 /// ```
@@ -79,9 +68,9 @@ pub struct SparseGridCell {
 /// ## Examples
 /// Here is a basic example that shows most of its capabilities:
 /// ```rust
-/// use flat_spatial::SparseGrid;
+/// use flat_spatial::Grid;
 ///
-/// let mut g: SparseGrid<i32> = SparseGrid::new(10); // Creates a new grid with a cell width of 10 with an integer as extra data
+/// let mut g: Grid<i32> = Grid::new(10); // Creates a new grid with a cell width of 10 with an integer as extra data
 /// let a = g.insert([0.0, 0.0], 0); // Inserts a new element with data: 0
 ///
 /// {
@@ -105,23 +94,31 @@ pub struct SparseGridCell {
 /// assert_eq!(g.get(a), None); // But that a doesn't exist anymore
 /// ```
 #[derive(Clone)]
-pub struct SparseGrid<O: Copy> {
-    cell_size: i32,
-    cells: HashMap<PosIdx, SparseGridCell>,
-    objects: SlotMap<SparseGridHandle, StoreObject<O>>,
+pub struct Grid<O: Copy, ST: Storage = SparseStorage> {
+    storage: ST,
+    objects: GridObjects<O, ST::Idx>,
     // Cache maintain vec to avoid allocating every time maintain is called
-    to_relocate: Vec<(PosIdx, CellObject)>,
+    to_relocate: Vec<(ST::Idx, CellObject)>,
 }
 
-impl<O: Copy> SparseGrid<O> {
+impl<ST: Storage, O: Copy> Grid<O, ST> {
     /// Creates an empty grid.   
     /// The cell size should be about the same magnitude as your queries size.
     pub fn new(cell_size: i32) -> Self {
         Self {
-            cell_size,
-            cells: HashMap::new(),
+            storage: ST::new(cell_size),
             objects: SlotMap::with_key(),
-            to_relocate: vec![],
+            to_relocate: Vec::<(ST::Idx, CellObject)>::new(),
+        }
+    }
+
+    /// Creates an empty grid.   
+    /// The cell size should be about the same magnitude as your queries size.
+    pub fn with_storage(st: ST) -> Self {
+        Self {
+            storage: st,
+            objects: SlotMap::with_key(),
+            to_relocate: Vec::<(ST::Idx, CellObject)>::new(),
         }
     }
 
@@ -130,24 +127,21 @@ impl<O: Copy> SparseGrid<O> {
     ///
     /// # Example
     /// ```rust
-    /// use flat_spatial::SparseGrid;
-    /// let mut g: SparseGrid<()> = SparseGrid::new(10);
+    /// use flat_spatial::Grid;
+    /// let mut g: Grid<()> = Grid::new(10);
     /// let h = g.insert([5.0, 3.0], ());
     /// ```
-    pub fn insert(&mut self, pos: impl Into<Point2<f32>>, obj: O) -> SparseGridHandle {
+    pub fn insert(&mut self, pos: impl Into<Point2<f32>>, obj: O) -> GridHandle {
         let pos = pos.into();
-        let cell_id = self.get_cell_id(pos);
+        self.storage.check_resize(pos, &mut self.objects);
+        let cell_id = self.storage.get_cell_id(pos);
         let handle = self.objects.insert(StoreObject {
             obj,
             state: ObjectState::Unchanged,
             pos,
             cell_id,
         });
-        self.cells
-            .entry(cell_id)
-            .or_default()
-            .objs
-            .push((handle, pos));
+        self.storage.insert(cell_id, (handle, pos));
         handle
     }
 
@@ -156,14 +150,15 @@ impl<O: Copy> SparseGrid<O> {
     ///
     /// # Example
     /// ```rust
-    /// use flat_spatial::SparseGrid;
-    /// let mut g: SparseGrid<()> = SparseGrid::new(10);
+    /// use flat_spatial::Grid;
+    /// let mut g: Grid<()> = Grid::new(10);
     /// let h = g.insert([5.0, 3.0], ());
     /// g.set_position(h, [3.0, 3.0]);
     /// ```
-    pub fn set_position(&mut self, handle: SparseGridHandle, pos: impl Into<Point2<f32>>) {
+    pub fn set_position(&mut self, handle: GridHandle, pos: impl Into<Point2<f32>>) {
         let pos = pos.into();
-        let new_cell_id = self.get_cell_id(pos);
+        self.storage.check_resize(pos, &mut self.objects);
+        let new_cell_id = self.storage.get_cell_id(pos);
 
         let obj = self
             .objects
@@ -176,7 +171,7 @@ impl<O: Copy> SparseGrid<O> {
             obj.state = ObjectState::NewPos
         }
 
-        self.get_cell_mut(old_id).dirty = true;
+        self.storage.set_dirty(old_id);
     }
 
     /// Lazily removes an object from the grid.
@@ -184,20 +179,19 @@ impl<O: Copy> SparseGrid<O> {
     ///
     /// # Example
     /// ```rust
-    /// use flat_spatial::SparseGrid;
-    /// let mut g: SparseGrid<()> = SparseGrid::new(10);
+    /// use flat_spatial::Grid;
+    /// let mut g: Grid<()> = Grid::new(10);
     /// let h = g.insert([5.0, 3.0], ());
     /// g.remove(h);
     /// ```
-    pub fn remove(&mut self, handle: SparseGridHandle) {
+    pub fn remove(&mut self, handle: GridHandle) {
         let st = self
             .objects
             .get_mut(handle)
             .expect("Object not in grid anymore");
 
         st.state = ObjectState::Removed;
-        let id = st.cell_id;
-        self.get_cell_mut(id).dirty = true;
+        self.storage.set_dirty(st.cell_id);
     }
 
     /// Maintains the world, updating all the positions (and moving them to corresponding cells)
@@ -205,8 +199,8 @@ impl<O: Copy> SparseGrid<O> {
     /// Runs in linear time O(N) where N is the number of objects.
     /// # Example
     /// ```rust
-    /// use flat_spatial::SparseGrid;
-    /// let mut g: SparseGrid<()> = SparseGrid::new(10);
+    /// use flat_spatial::Grid;
+    /// let mut g: Grid<()> = Grid::new(10);
     /// let h = g.insert([5.0, 3.0], ());
     /// g.remove(h);
     ///
@@ -216,67 +210,34 @@ impl<O: Copy> SparseGrid<O> {
     /// ```
     pub fn maintain(&mut self) {
         let Self {
-            cells,
+            storage,
             objects,
             to_relocate,
             ..
         } = self;
 
-        cells.retain(|&id, cell| {
-            if !cell.dirty {
-                return true;
-            }
-
-            cell.dirty = false;
-
-            cell.objs.retain_mut(|(obj_id, obj_pos)| {
-                let store_obj = &mut objects[*obj_id];
-                match store_obj.state {
-                    ObjectState::NewPos => {
-                        store_obj.state = ObjectState::Unchanged;
-                        *obj_pos = store_obj.pos;
-                        let relocate = store_obj.cell_id != id;
-                        if relocate {
-                            to_relocate.push((store_obj.cell_id, (*obj_id, *obj_pos)));
-                        }
-                        !relocate
-                    }
-                    ObjectState::Removed => {
-                        objects.remove(*obj_id);
-                        false
-                    }
-                    _ => true,
-                }
-            });
-
-            !cell.objs.is_empty()
-        });
+        storage.maintain(objects, to_relocate);
 
         for (cell_id, obj) in to_relocate.drain(..) {
-            self.cells.entry(cell_id).or_default().objs.push(obj);
+            self.storage.insert(cell_id, obj);
         }
     }
 
     /// Iterate over all handles
-    pub fn handles(&self) -> impl Iterator<Item = SparseGridHandle> + '_ {
+    pub fn handles(&self) -> impl Iterator<Item = GridHandle> + '_ {
         self.objects.keys()
-    }
-
-    /// Read access to the cells
-    pub fn cells(&self) -> impl Iterator<Item = &SparseGridCell> {
-        self.cells.values()
     }
 
     /// Returns a reference to the associated object and its position, using the handle.  
     ///
     /// # Example
     /// ```rust
-    /// use flat_spatial::SparseGrid;
-    /// let mut g: SparseGrid<i32> = SparseGrid::new(10);
+    /// use flat_spatial::Grid;
+    /// let mut g: Grid<i32> = Grid::new(10);
     /// let h = g.insert([5.0, 3.0], 42);
     /// assert_eq!(g.get(h), Some(([5.0, 3.0].into(), &42)));
     /// ```
-    pub fn get(&self, id: SparseGridHandle) -> Option<(Point2<f32>, &O)> {
+    pub fn get(&self, id: GridHandle) -> Option<(Point2<f32>, &O)> {
         self.objects.get(id).map(|x| (x.pos, &x.obj))
     }
 
@@ -284,14 +245,19 @@ impl<O: Copy> SparseGrid<O> {
     ///
     /// # Example
     /// ```rust
-    /// use flat_spatial::SparseGrid;
-    /// let mut g: SparseGrid<i32> = SparseGrid::new(10);
+    /// use flat_spatial::Grid;
+    /// let mut g: Grid<i32> = Grid::new(10);
     /// let h = g.insert([5.0, 3.0], 42);
     /// *g.get_mut(h).unwrap().1 = 56;
     /// assert_eq!(g.get(h).unwrap().1, &56);
     /// ```    
-    pub fn get_mut(&mut self, id: SparseGridHandle) -> Option<(Point2<f32>, &mut O)> {
+    pub fn get_mut(&mut self, id: GridHandle) -> Option<(Point2<f32>, &mut O)> {
         self.objects.get_mut(id).map(|x| (x.pos, &mut x.obj))
+    }
+
+    /// The underlying storage
+    pub fn storage(&self) -> &ST {
+        &self.storage
     }
 
     /// Queries for all objects around a position within a certain radius.
@@ -299,9 +265,9 @@ impl<O: Copy> SparseGrid<O> {
     ///
     /// # Example
     /// ```rust
-    /// use flat_spatial::SparseGrid;
+    /// use flat_spatial::Grid;
     ///
-    /// let mut g: SparseGrid<()> = SparseGrid::new(10);
+    /// let mut g: Grid<()> = Grid::new(10);
     /// let a = g.insert([0.0, 0.0], ());
     ///
     /// let around: Vec<_> = g.query_around([2.0, 2.0], 5.0).map(|(id, _pos)| id).collect();
@@ -311,36 +277,17 @@ impl<O: Copy> SparseGrid<O> {
     #[rustfmt::skip]
     pub fn query_around(&self, pos: impl Into<Point2<f32>>, radius: f32) -> impl Iterator<Item=CellObject> + '_ {
         let pos = pos.into();
-        let (x, y) = self.get_cell_id(pos);
 
-        let rplus = (radius as i32) / self.cell_size;
-
-        let x_diff = pos.x - (x * self.cell_size) as f32;
-        let y_diff = pos.y - (y * self.cell_size) as f32;
-
-        let remainder = radius - (rplus * self.cell_size) as f32;
-        let left = x_diff < remainder;
-        let bottom = y_diff < remainder;
-        let right = self.cell_size as f32 - x_diff < remainder;
-        let top = self.cell_size as f32 - y_diff < remainder;
-
-        let x1 = x - rplus - left as i32;
-        let y1 = y - rplus - bottom as i32;
-
-        let x2 = x + rplus + right as i32;
-        let y2 = y + rplus + top as i32;
+        let ll = [pos.x - radius, pos.y - radius].into(); // lower left
+        let ur = [pos.x + radius, pos.y + radius].into(); // upper right
 
         let radius2 = radius * radius;
-        (y1..y2 + 1)
-            .flat_map(move |y| (x1..x2 + 1).map(move |x| (x, y)))
-            .flat_map(move |coords| self.cells.get(&coords))
-            .flat_map(move |cell| cell.objs.iter())
+        self.query_raw(ll, ur)
             .filter(move |(_, pos_obj)| {
                 let x = pos_obj.x - pos.x;
                 let y = pos_obj.y - pos.y;
                 x * x + y * y < radius2
             })
-            .copied()
     }
 
     /// Queries for all objects in an aabb (aka a rect).
@@ -348,9 +295,9 @@ impl<O: Copy> SparseGrid<O> {
     ///
     /// # Example
     /// ```rust
-    /// use flat_spatial::SparseGrid;
+    /// use flat_spatial::Grid;
     ///
-    /// let mut g: SparseGrid<()> = SparseGrid::new(10);
+    /// let mut g: Grid<()> = Grid::new(10);
     /// let a = g.insert([0.0, 0.0], ());
     ///
     /// let around: Vec<_> = g.query_aabb([-1.0, -1.0], [1.0, 1.0]).map(|(id, _pos)| id).collect();
@@ -365,41 +312,44 @@ impl<O: Copy> SparseGrid<O> {
         let ll = [aa.x.min(bb.x), aa.y.min(bb.y)].into(); // lower left
         let ur = [aa.x.max(bb.x), aa.y.max(bb.y)].into(); // upper right
 
-        let (x1, y1) = self.get_cell_id(ll);
-        let (x2, y2) = self.get_cell_id(ur);
-
-        (y1..y2 + 1)
-            .flat_map(move |y| (x1..x2 + 1).map(move |x| (x, y)))
-            .flat_map(move |coords| self.cells.get(&coords))
-            .flat_map(move |cell| cell.objs.iter())
+        self.query_raw(ll, ur)
             .filter(move |(_, pos_obj)| {
-                (pos_obj.x >= ll.x) && (pos_obj.x <= ur.x) &&
-                    (pos_obj.y >= ll.y) && (pos_obj.y <= ur.y)
+                (ll.x ..= ur.x).contains(&pos_obj.x) &&
+                    (ll.y ..= ur.y).contains(&pos_obj.y)
             })
-            .copied()
+    }
+
+    #[rustfmt::skip]
+    pub fn query_raw(&self, ll: Point2<f32>, ur: Point2<f32>) -> impl Iterator<Item=CellObject> + '_ {
+        let ll_id = self.storage.get_cell_id(ll);
+        let ur_id = self.storage.get_cell_id(ur);
+
+        self.storage.cell_range(ll_id, ur_id)
+            .flat_map(move |id| self.storage.get_cell(id))
+            .flat_map(|x| x.objs.iter().copied())
     }
 
     /// Allows to look directly at what's in a cell covering a specific position.
     ///
     /// # Example
     /// ```rust
-    /// use flat_spatial::SparseGrid;
+    /// use flat_spatial::Grid;
     ///
-    /// let mut g: SparseGrid<()> = SparseGrid::new(10);
+    /// let mut g: Grid<()> = Grid::new(10);
     /// let a = g.insert([2.0, 2.0], ());
     ///
     /// let around = g.get_cell([1.0, 1.0]).collect::<Vec<_>>();
     ///
-    /// assert_eq!(vec![&(a, [2.0, 2.0].into())], around);
+    /// assert_eq!(vec![(a, [2.0, 2.0].into())], around);
     /// ```
     pub fn get_cell(
         &mut self,
         pos: impl Into<mint::Point2<f32>>,
-    ) -> impl Iterator<Item = &CellObject> {
-        self.cells
-            .get(&self.get_cell_id(pos.into()))
+    ) -> impl Iterator<Item = CellObject> + '_ {
+        self.storage
+            .get_cell(self.storage.get_cell_id(pos.into()))
             .into_iter()
-            .flat_map(|x| x.objs.iter())
+            .flat_map(|x| x.objs.iter().copied())
     }
 
     /// Returns the number of objects currently available
@@ -413,31 +363,18 @@ impl<O: Copy> SparseGrid<O> {
     pub fn is_empty(&self) -> bool {
         self.objects.is_empty()
     }
-
-    fn get_cell_mut(&mut self, id: PosIdx) -> &mut SparseGridCell {
-        self.cells.get_mut(&id).expect("get_cell error")
-    }
-
-    #[inline]
-    fn get_cell_id(&self, pos: Point2<f32>) -> PosIdx {
-        (
-            (pos.x as i32) / self.cell_size,
-            (pos.y as i32) / self.cell_size,
-        )
-    }
 }
 
 #[cfg(test)]
 mod tests {
-    use super::SparseGrid;
+    use super::Grid;
 
     #[test]
     fn test_small_query() {
-        let mut g: SparseGrid<()> = SparseGrid::new(10);
+        let mut g: Grid<()> = Grid::new(10);
         let a = g.insert([5.0, 0.0], ());
         let b = g.insert([11.0, 0.0], ());
         let c = g.insert([5.0, 8.0], ());
-        assert_eq!(g.cells().count(), 2);
 
         let near: Vec<_> = g.query_around([6.0, 0.0], 2.0).map(|x| x.0).collect();
         assert_eq!(near, vec![a]);
@@ -453,13 +390,117 @@ mod tests {
     }
 
     #[test]
-    fn test_shrink() {
+    fn test_big_query_around() {
+        let mut g: Grid<()> = Grid::new(10);
+
+        for i in 0..100 {
+            g.insert([i as f32, 0.0], ());
+        }
+
+        let q: Vec<_> = g.query_around([15.0, 0.0], 9.5).map(|x| x.0).collect();
+        assert_eq!(q.len(), 19); // 1 middle, 8 left, 8 right
+    }
+
+    #[test]
+    fn test_big_query_rect() {
+        let mut g: Grid<()> = Grid::new(10);
+
+        for i in 0..100 {
+            g.insert([i as f32, 0.0], ());
+        }
+
+        let q: Vec<_> = g
+            .query_aabb([5.5, 1.0], [15.5, -1.0])
+            .map(|x| x.0)
+            .collect();
+        assert_eq!(q.len(), 10);
+    }
+
+    #[test]
+    fn test_distance_test() {
+        let mut g: Grid<()> = Grid::new(10);
+        let a = g.insert([3.0, 4.0], ());
+
+        let far: Vec<_> = g.query_around([0.0, 0.0], 5.1).map(|x| x.0).collect();
+        assert_eq!(far, vec![a]);
+
+        let near: Vec<_> = g.query_around([0.0, 0.0], 4.9).map(|x| x.0).collect();
+        assert_eq!(near, vec![]);
+    }
+
+    #[test]
+    fn test_change_position() {
+        let mut g: Grid<()> = Grid::new(10);
+        let a = g.insert([0.0, 0.0], ());
+
+        let before: Vec<_> = g.query_around([0.0, 0.0], 5.0).map(|x| x.0).collect();
+        assert_eq!(before, vec![a]);
+
+        g.set_position(a, [30.0, 30.0]);
+        g.maintain();
+
+        let before: Vec<_> = g.query_around([0.0, 0.0], 5.0).map(|x| x.0).collect();
+        assert_eq!(before, vec![]);
+
+        let after: Vec<_> = g.query_around([30.0, 30.0], 5.0).map(|x| x.0).collect();
+        assert_eq!(after, vec![a]);
+    }
+
+    #[test]
+    fn test_remove() {
+        let mut g: Grid<()> = Grid::new(10);
+        let a = g.insert([0.0, 0.0], ());
+
+        let before: Vec<_> = g.query_around([0.0, 0.0], 5.0).map(|x| x.0).collect();
+        assert_eq!(before, vec![a]);
+
+        g.remove(a);
+        let b = g.insert([0.0, 0.0], ());
+        g.maintain();
+
+        assert_eq!(g.handles().collect::<Vec<_>>(), vec![b]);
+
+        let after: Vec<_> = g.query_around([0.0, 0.0], 5.0).map(|x| x.0).collect();
+        assert_eq!(after, vec![b]);
+    }
+
+    #[test]
+    fn test_resize() {
+        let mut g: Grid<()> = Grid::new(10);
+        let a = g.insert([-1000.0, 0.0], ());
+
+        let q: Vec<_> = g.query_around([-1000.0, 0.0], 5.0).map(|x| x.0).collect();
+        assert_eq!(q, vec![a]);
+
+        let b = g.insert([0.0, 1000.0], ());
+
+        let q: Vec<_> = g.query_around([0.0, 1000.0], 5.0).map(|x| x.0).collect();
+        assert_eq!(q, vec![b]);
+    }
+}
+
+#[cfg(test)]
+mod testssparse {
+    use crate::SparseGrid;
+
+    #[test]
+    fn test_small_query() {
         let mut g: SparseGrid<()> = SparseGrid::new(10);
         let a = g.insert([5.0, 0.0], ());
-        g.remove(a);
-        assert_eq!(g.cells().count(), 1);
-        g.maintain();
-        assert_eq!(g.cells().count(), 0);
+        let b = g.insert([11.0, 0.0], ());
+        let c = g.insert([5.0, 8.0], ());
+
+        let near: Vec<_> = g.query_around([6.0, 0.0], 2.0).map(|x| x.0).collect();
+        assert_eq!(near, vec![a]);
+
+        let mid: Vec<_> = g.query_around([8.0, 0.0], 4.0).map(|x| x.0).collect();
+        assert!(mid.contains(&a));
+        assert!(mid.contains(&b));
+
+        let far: Vec<_> = g.query_around([6.0, 0.0], 10.0).map(|x| x.0).collect();
+        assert!(far.contains(&a));
+        assert!(far.contains(&b));
+        assert!(far.contains(&c));
     }
 
     #[test]

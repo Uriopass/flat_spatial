@@ -1,4 +1,4 @@
-use flat_spatial::DenseGrid;
+use flat_spatial::Grid;
 
 // A structure has to be copy in order to be in a dense grid, because of slotmap's requirements.
 // This is subject to change
@@ -9,7 +9,7 @@ struct Car {
 
 fn main() {
     // Creates the grid with cell size 10
-    let mut g: DenseGrid<Car> = DenseGrid::new(10);
+    let mut g: Grid<Car> = Grid::new(10);
 
     // create objects in the range x: [-50..50], y: [-50..50]
     for _ in 0..100 {
@@ -31,7 +31,7 @@ fn main() {
     }
 }
 
-fn update_loop(g: &mut DenseGrid<Car>) {
+fn update_loop(g: &mut Grid<Car>) {
     println!("{} cars left", g.len());
 
     let handles: Vec<_> = g.handles().collect();
