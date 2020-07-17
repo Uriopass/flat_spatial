@@ -8,4 +8,7 @@
 //!
 
 pub mod densegrid;
+pub mod sparsegrid;
+
 pub use densegrid::DenseGrid;
+pub use sparsegrid::SparseGrid;
