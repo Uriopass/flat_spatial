@@ -7,9 +7,7 @@
 flat_spatial is a crate dedicated to dynamic spatial partitioning structures that are not based on trees
 (which are recursive) but on simple flat structures such as a grid/hashmap of cells.  
 Using grids or other flat structures makes for very fast updates (constant time) and
-even fast queries, provded they are adapted to the structure.
-
-At the moment, only the dense grid is implemented.
+even fast queries, provided the cell size is adapted to the problem.
 
 ## DenseGrid
 
@@ -23,6 +21,15 @@ Since it's so simple, the dense grid supports dynamic capabilities such as posit
 or object removal based on handles (using `slotmap`).
 
 It is recommended to have queries roughly the same size as the cell size.
+
+## SparseGrid
+
+The SparseGrid is very similar to the DenseGrid, only that it uses a HashMap of cells instead of a vector.
+That way, unused space has zero overhead and no reallocation is necessary when points get out of the boundary, 
+only when the HashMap runs out of space.    
+
+On the flip side, this makes queries/maintaining slightly slower
+since positions need to be hashed to find the corresponding cell.
 
 ### Benchmarks
 
