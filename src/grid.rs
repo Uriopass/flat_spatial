@@ -271,20 +271,22 @@ impl<ST: Storage, O: Copy> Grid<O, ST> {
     ///
     /// assert_eq!(vec![a], around);
     /// ```
-    #[rustfmt::skip]
-    pub fn query_around(&self, pos: impl Into<Point2<f32>>, radius: f32) -> impl Iterator<Item=CellObject> + '_ {
+    pub fn query_around(
+        &self,
+        pos: impl Into<Point2<f32>>,
+        radius: f32,
+    ) -> impl Iterator<Item = CellObject> + '_ {
         let pos = pos.into();
 
         let ll = [pos.x - radius, pos.y - radius].into(); // lower left
         let ur = [pos.x + radius, pos.y + radius].into(); // upper right
 
         let radius2 = radius * radius;
-        self.query_raw(ll, ur)
-            .filter(move |(_, pos_obj)| {
-                let x = pos_obj.x - pos.x;
-                let y = pos_obj.y - pos.y;
-                x * x + y * y < radius2
-            })
+        self.query_raw(ll, ur).filter(move |(_, pos_obj)| {
+            let x = pos_obj.x - pos.x;
+            let y = pos_obj.y - pos.y;
+            x * x + y * y < radius2
+        })
     }
 
     /// Queries for all objects in an aabb (aka a rect).
@@ -301,27 +303,47 @@ impl<ST: Storage, O: Copy> Grid<O, ST> {
     ///
     /// assert_eq!(vec![a], around);
     /// ```
-    #[rustfmt::skip]
-    pub fn query_aabb(&self, aa: impl Into<Point2<f32>>, bb: impl Into<Point2<f32>>) -> impl Iterator<Item=CellObject> + '_ {
+    pub fn query_aabb(
+        &self,
+        aa: impl Into<Point2<f32>>,
+        bb: impl Into<Point2<f32>>,
+    ) -> impl Iterator<Item = CellObject> + '_ {
         let aa = aa.into();
         let bb = bb.into();
 
         let ll = [aa.x.min(bb.x), aa.y.min(bb.y)].into(); // lower left
         let ur = [aa.x.max(bb.x), aa.y.max(bb.y)].into(); // upper right
 
-        self.query_raw(ll, ur)
-            .filter(move |(_, pos_obj)| {
-                (ll.x ..= ur.x).contains(&pos_obj.x) &&
-                    (ll.y ..= ur.y).contains(&pos_obj.y)
-            })
+        self.query_raw(ll, ur).filter(move |(_, pos_obj)| {
+            (ll.x..=ur.x).contains(&pos_obj.x) && (ll.y..=ur.y).contains(&pos_obj.y)
+        })
     }
 
-    #[rustfmt::skip]
-    pub fn query_raw(&self, ll: Point2<f32>, ur: Point2<f32>) -> impl Iterator<Item=CellObject> + '_ {
+    /// Queries for all objects in the cells intersecting an axis-aligned rectangle defined by lower left (ll) and upper right (ur)
+    /// Try to keep the rect's width/height of similar magnitudes to the cell size for better performance.
+    ///
+    /// # Example
+    /// ```rust
+    /// use flat_spatial::Grid;
+    ///
+    /// let mut g: Grid<()> = Grid::new(10);
+    /// let a = g.insert([0.0, 0.0], ());
+    /// let b = g.insert([5.0, 5.0], ());
+    ///
+    /// let around: Vec<_> = g.query_raw([-1.0, -1.0].into(), [1.0, 1.0].into()).map(|(id, _pos)| id).collect();
+    ///
+    /// assert_eq!(vec![a, b], around);
+    /// ```
+    pub fn query_raw(
+        &self,
+        ll: Point2<f32>,
+        ur: Point2<f32>,
+    ) -> impl Iterator<Item = CellObject> + '_ {
         let ll_id = self.storage.cell_id(ll);
         let ur_id = self.storage.cell_id(ur);
 
-        self.storage.cell_range(ll_id, ur_id)
+        self.storage
+            .cell_range(ll_id, ur_id)
             .flat_map(move |id| self.storage.cell(id))
             .flat_map(|x| x.objs.iter().copied())
     }
