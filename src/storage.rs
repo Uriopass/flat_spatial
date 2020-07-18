@@ -58,6 +58,10 @@ impl DenseStorage {
             cells: (0..w * h).map(|_| Default::default()).collect(),
         }
     }
+
+    pub fn cells(&self) -> &Vec<GridCell> {
+        &self.cells
+    }
 }
 
 impl Storage for DenseStorage {
@@ -195,6 +199,12 @@ impl Iterator for DenseIter {
 pub struct SparseStorage {
     cell_size: i32,
     cells: HashMap<(i32, i32), GridCell>,
+}
+
+impl SparseStorage {
+    pub fn cells(&self) -> &HashMap<(i32, i32), GridCell> {
+        &self.cells
+    }
 }
 
 impl Storage for SparseStorage {
