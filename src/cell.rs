@@ -13,28 +13,32 @@ pub struct GridCell {
 impl GridCell {
     pub fn maintain<T: Copy, U: Copy + Eq>(
         &mut self,
-        self_id: U,
         objects: &mut GridObjects<T, U>,
-        to_relocate: &mut Vec<(U, CellObject)>,
+        to_relocate: &mut Vec<CellObject>,
     ) {
+        if !self.dirty {
+            return;
+        }
         self.dirty = false;
         self.objs.retain_mut(|(obj_id, obj_pos)| {
             let store_obj = &mut objects[*obj_id];
+
             match store_obj.state {
                 ObjectState::NewPos => {
                     store_obj.state = ObjectState::Unchanged;
                     *obj_pos = store_obj.pos;
-                    let relocate = store_obj.cell_id != self_id;
-                    if relocate {
-                        to_relocate.push((store_obj.cell_id, (*obj_id, *obj_pos)));
-                    }
-                    !relocate
+                    true
+                }
+                ObjectState::Relocate => {
+                    store_obj.state = ObjectState::Unchanged;
+                    to_relocate.push((*obj_id, store_obj.pos));
+                    false
                 }
                 ObjectState::Removed => {
                     objects.remove(*obj_id);
                     false
                 }
-                _ => true,
+                ObjectState::Unchanged => true,
             }
         });
     }

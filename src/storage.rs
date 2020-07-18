@@ -1,34 +1,21 @@
-use crate::cell::{CellObject, GridCell};
-use crate::grid::{GridHandle, GridObjects, ObjectState, StoreObject};
+use crate::cell::GridCell;
 use mint::Point2;
-use slotmap::SlotMap;
 use std::collections::HashMap;
 
 /// The storage trait, implement this if you want to use a custom point storage for the Grid.
 pub trait Storage {
-    type Idx: Copy;
+    type Idx: Copy + Eq;
     type IdxIter: Iterator<Item = Self::Idx>;
 
     fn new(cell_size: i32) -> Self;
 
-    fn before_insert<O: Copy>(
-        &mut self,
-        pos: Point2<f32>,
-        _objects: &mut GridObjects<O, Self::Idx>,
-    ) -> Self::Idx {
-        self.cell_id(pos)
-    }
+    fn modify(&mut self, f: impl FnMut(&mut GridCell));
 
-    fn insert(&mut self, id: Self::Idx, obj: CellObject);
-
-    fn maintain<O: Copy>(
-        &mut self,
-        objects: &mut SlotMap<GridHandle, StoreObject<O, Self::Idx>>,
-        to_relocate: &mut Vec<(Self::Idx, CellObject)>,
-    );
-
+    fn cell_mut<IC>(&mut self, pos: Point2<f32>, on_ids_changed: IC) -> (Self::Idx, &mut GridCell)
+    where
+        IC: FnMut(&mut Self);
+    fn cell_mut_unchecked(&mut self, id: Self::Idx) -> &mut GridCell;
     fn cell(&self, id: Self::Idx) -> Option<&GridCell>;
-    fn cell_mut(&mut self, id: Self::Idx) -> Option<&mut GridCell>;
 
     fn cell_range(&self, ll: Self::Idx, ur: Self::Idx) -> Self::IdxIter;
     fn cell_id(&self, p: Point2<f32>) -> Self::Idx;
@@ -71,31 +58,6 @@ impl DenseStorage {
             cells: (0..w * h).map(|_| Default::default()).collect(),
         }
     }
-
-    fn reallocate<T: Copy>(&mut self, objects: &mut GridObjects<T, usize>) {
-        self.cells
-            .resize_with((self.width * self.height) as usize, GridCell::default);
-
-        for x in &mut self.cells {
-            x.objs.clear();
-            x.dirty = false;
-        }
-
-        for (id, obj) in objects {
-            let cell_id = ((obj.pos.y as i32 - self.start_y) / self.cell_size * self.width
-                + ((obj.pos.x as i32 - self.start_x) / self.cell_size))
-                as usize;
-
-            obj.cell_id = cell_id;
-            obj.state = ObjectState::Unchanged;
-
-            self.cells
-                .get_mut(cell_id)
-                .unwrap()
-                .objs
-                .push((id, obj.pos));
-        }
-    }
 }
 
 impl Storage for DenseStorage {
@@ -113,25 +75,18 @@ impl Storage for DenseStorage {
         }
     }
 
-    fn insert(&mut self, cell_id: Self::Idx, obj: (GridHandle, Point2<f32>)) {
-        self.cells.get_mut(cell_id).unwrap().objs.push(obj);
+    fn modify(&mut self, f: impl FnMut(&mut GridCell)) {
+        self.cells.iter_mut().for_each(f)
     }
 
-    fn maintain<O: Copy>(
-        &mut self,
-        objects: &mut SlotMap<GridHandle, StoreObject<O, Self::Idx>>,
-        to_relocate: &mut Vec<(Self::Idx, CellObject)>,
-    ) {
-        for (id, cell) in self.cells.iter_mut().filter(|x| x.dirty).enumerate() {
-            cell.maintain(id, objects, to_relocate);
-        }
-    }
-
-    fn before_insert<O: Copy>(
+    fn cell_mut<IC>(
         &mut self,
         pos: Point2<f32>,
-        objects: &mut GridObjects<O, Self::Idx>,
-    ) -> Self::Idx {
+        mut on_ids_changed: IC,
+    ) -> (Self::Idx, &mut GridCell)
+    where
+        IC: FnMut(&mut Self),
+    {
         debug_assert!(pos.x.is_finite());
         debug_assert!(pos.y.is_finite());
 
@@ -173,18 +128,21 @@ impl Storage for DenseStorage {
         }
 
         if reallocate {
-            self.reallocate(objects);
+            self.cells
+                .resize_with((self.width * self.height) as usize, GridCell::default);
+            on_ids_changed(self)
         }
 
-        self.cell_id(pos)
+        let id = self.cell_id(pos);
+        (id, self.cell_mut_unchecked(id))
+    }
+
+    fn cell_mut_unchecked(&mut self, id: Self::Idx) -> &mut GridCell {
+        &mut self.cells[id]
     }
 
     fn cell(&self, id: Self::Idx) -> Option<&GridCell> {
         self.cells.get(id)
-    }
-
-    fn cell_mut(&mut self, id: Self::Idx) -> Option<&mut GridCell> {
-        self.cells.get_mut(id)
     }
 
     fn cell_range(&self, ll: Self::Idx, ur: Self::Idx) -> Self::IdxIter {
@@ -250,30 +208,28 @@ impl Storage for SparseStorage {
         }
     }
 
-    fn insert(&mut self, cell_id: Self::Idx, obj: CellObject) {
-        self.cells.entry(cell_id).or_default().objs.push(obj);
-    }
-
-    fn maintain<O: Copy>(
-        &mut self,
-        objects: &mut SlotMap<GridHandle, StoreObject<O, Self::Idx>>,
-        to_relocate: &mut Vec<(Self::Idx, CellObject)>,
-    ) {
-        self.cells.retain(|&id, cell| {
-            if !cell.dirty {
-                return true;
-            }
-            cell.maintain(id, objects, to_relocate);
+    fn modify(&mut self, mut f: impl FnMut(&mut GridCell)) {
+        self.cells.retain(move |_, cell| {
+            f(cell);
             !cell.objs.is_empty()
         });
     }
 
-    fn cell(&self, id: Self::Idx) -> Option<&GridCell> {
-        self.cells.get(&id)
+    // ids never change
+    fn cell_mut<IC>(&mut self, pos: Point2<f32>, _on_ids_changed: IC) -> (Self::Idx, &mut GridCell)
+    where
+        IC: FnMut(&mut Self),
+    {
+        let id = self.cell_id(pos);
+        (id, self.cells.entry(id).or_default())
     }
 
-    fn cell_mut(&mut self, id: Self::Idx) -> Option<&mut GridCell> {
-        self.cells.get_mut(&id)
+    fn cell_mut_unchecked(&mut self, id: Self::Idx) -> &mut GridCell {
+        self.cells.get_mut(&id).unwrap()
+    }
+
+    fn cell(&self, id: Self::Idx) -> Option<&GridCell> {
+        self.cells.get(&id)
     }
 
     fn cell_range(&self, (x1, y1): Self::Idx, (x2, y2): Self::Idx) -> Self::IdxIter {

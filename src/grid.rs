@@ -1,4 +1,4 @@
-use crate::cell::CellObject;
+use crate::cell::{CellObject, GridCell};
 use crate::storage::{SparseStorage, Storage};
 use mint::Point2;
 use slotmap::new_key_type;
@@ -17,6 +17,7 @@ new_key_type! {
 pub enum ObjectState {
     Unchanged,
     NewPos,
+    Relocate,
     Removed,
 }
 
@@ -98,7 +99,7 @@ pub struct Grid<O: Copy, ST: Storage = SparseStorage> {
     storage: ST,
     objects: GridObjects<O, ST::Idx>,
     // Cache maintain vec to avoid allocating every time maintain is called
-    to_relocate: Vec<(ST::Idx, CellObject)>,
+    to_relocate: Vec<CellObject>,
 }
 
 impl<ST: Storage, O: Copy> Grid<O, ST> {
@@ -108,7 +109,7 @@ impl<ST: Storage, O: Copy> Grid<O, ST> {
         Self {
             storage: ST::new(cell_size),
             objects: SlotMap::with_key(),
-            to_relocate: Vec::<(ST::Idx, CellObject)>::new(),
+            to_relocate: Default::default(),
         }
     }
 
@@ -118,8 +119,27 @@ impl<ST: Storage, O: Copy> Grid<O, ST> {
         Self {
             storage: st,
             objects: SlotMap::with_key(),
-            to_relocate: Vec::<(ST::Idx, CellObject)>::new(),
+            to_relocate: Default::default(),
         }
+    }
+
+    fn cell_mut<'a>(
+        storage: &'a mut ST,
+        objects: &mut GridObjects<O, ST::Idx>,
+        pos: Point2<f32>,
+    ) -> (ST::Idx, &'a mut GridCell) {
+        storage.cell_mut(pos, move |storage| {
+            storage.modify(move |cell| cell.objs.clear());
+
+            for (handle, obj) in objects.iter_mut() {
+                obj.cell_id = storage.cell_id(obj.pos);
+                obj.state = ObjectState::Unchanged;
+                storage
+                    .cell_mut_unchecked(obj.cell_id)
+                    .objs
+                    .push((handle, obj.pos));
+            }
+        })
     }
 
     /// Inserts a new object with a position and an associated object
@@ -133,14 +153,19 @@ impl<ST: Storage, O: Copy> Grid<O, ST> {
     /// ```
     pub fn insert(&mut self, pos: impl Into<Point2<f32>>, obj: O) -> GridHandle {
         let pos = pos.into();
-        let cell_id = self.storage.before_insert(pos, &mut self.objects);
-        let handle = self.objects.insert(StoreObject {
+
+        let Self {
+            storage, objects, ..
+        } = self;
+
+        let (cell_id, cell) = Self::cell_mut(storage, objects, pos);
+        let handle = objects.insert(StoreObject {
             obj,
             state: ObjectState::Unchanged,
             pos,
             cell_id,
         });
-        self.storage.insert(cell_id, (handle, pos));
+        cell.objs.push((handle, pos));
         handle
     }
 
@@ -156,19 +181,23 @@ impl<ST: Storage, O: Copy> Grid<O, ST> {
     /// ```
     pub fn set_position(&mut self, handle: GridHandle, pos: impl Into<Point2<f32>>) {
         let pos = pos.into();
-        let new_cell_id = self.storage.before_insert(pos, &mut self.objects);
+
         let obj = self
             .objects
             .get_mut(handle)
             .expect("Object not in grid anymore");
-        let old_id = obj.cell_id;
-        obj.cell_id = new_cell_id;
         obj.pos = pos;
         if obj.state != ObjectState::Removed {
-            obj.state = ObjectState::NewPos
+            let target_id = self.storage.cell_id(pos);
+
+            obj.state = if target_id == obj.cell_id {
+                ObjectState::NewPos
+            } else {
+                ObjectState::Relocate
+            };
         }
 
-        self.storage.cell_mut(old_id).map(|x| x.dirty = true);
+        self.storage.cell_mut_unchecked(obj.cell_id).dirty = true;
     }
 
     /// Lazily removes an object from the grid.
@@ -188,7 +217,7 @@ impl<ST: Storage, O: Copy> Grid<O, ST> {
             .expect("Object not in grid anymore");
 
         st.state = ObjectState::Removed;
-        self.storage.cell_mut(st.cell_id).map(|x| x.dirty = true);
+        self.storage.cell_mut_unchecked(st.cell_id).dirty = true;
     }
 
     /// Maintains the world, updating all the positions (and moving them to corresponding cells)
@@ -213,10 +242,13 @@ impl<ST: Storage, O: Copy> Grid<O, ST> {
             ..
         } = self;
 
-        storage.maintain(objects, to_relocate);
+        storage.modify(|cell| cell.maintain(objects, to_relocate));
 
-        for (cell_id, obj) in to_relocate.drain(..) {
-            self.storage.insert(cell_id, obj);
+        for (handle, pos) in to_relocate.drain(..) {
+            Self::cell_mut(storage, objects, pos)
+                .1
+                .objs
+                .push((handle, pos));
         }
     }
 
