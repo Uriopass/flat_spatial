@@ -133,8 +133,7 @@ impl<ST: Storage, O: Copy> Grid<O, ST> {
     /// ```
     pub fn insert(&mut self, pos: impl Into<Point2<f32>>, obj: O) -> GridHandle {
         let pos = pos.into();
-        self.storage.check_resize(pos, &mut self.objects);
-        let cell_id = self.storage.get_cell_id(pos);
+        let cell_id = self.storage.before_insert(pos, &mut self.objects);
         let handle = self.objects.insert(StoreObject {
             obj,
             state: ObjectState::Unchanged,
@@ -157,9 +156,7 @@ impl<ST: Storage, O: Copy> Grid<O, ST> {
     /// ```
     pub fn set_position(&mut self, handle: GridHandle, pos: impl Into<Point2<f32>>) {
         let pos = pos.into();
-        self.storage.check_resize(pos, &mut self.objects);
-        let new_cell_id = self.storage.get_cell_id(pos);
-
+        let new_cell_id = self.storage.before_insert(pos, &mut self.objects);
         let obj = self
             .objects
             .get_mut(handle)
@@ -171,7 +168,7 @@ impl<ST: Storage, O: Copy> Grid<O, ST> {
             obj.state = ObjectState::NewPos
         }
 
-        self.storage.set_dirty(old_id);
+        self.storage.cell_mut(old_id).map(|x| x.dirty = true);
     }
 
     /// Lazily removes an object from the grid.
@@ -191,7 +188,7 @@ impl<ST: Storage, O: Copy> Grid<O, ST> {
             .expect("Object not in grid anymore");
 
         st.state = ObjectState::Removed;
-        self.storage.set_dirty(st.cell_id);
+        self.storage.cell_mut(st.cell_id).map(|x| x.dirty = true);
     }
 
     /// Maintains the world, updating all the positions (and moving them to corresponding cells)
@@ -321,11 +318,11 @@ impl<ST: Storage, O: Copy> Grid<O, ST> {
 
     #[rustfmt::skip]
     pub fn query_raw(&self, ll: Point2<f32>, ur: Point2<f32>) -> impl Iterator<Item=CellObject> + '_ {
-        let ll_id = self.storage.get_cell_id(ll);
-        let ur_id = self.storage.get_cell_id(ur);
+        let ll_id = self.storage.cell_id(ll);
+        let ur_id = self.storage.cell_id(ur);
 
         self.storage.cell_range(ll_id, ur_id)
-            .flat_map(move |id| self.storage.get_cell(id))
+            .flat_map(move |id| self.storage.cell(id))
             .flat_map(|x| x.objs.iter().copied())
     }
 
@@ -347,7 +344,7 @@ impl<ST: Storage, O: Copy> Grid<O, ST> {
         pos: impl Into<mint::Point2<f32>>,
     ) -> impl Iterator<Item = CellObject> + '_ {
         self.storage
-            .get_cell(self.storage.get_cell_id(pos.into()))
+            .cell(self.storage.cell_id(pos.into()))
             .into_iter()
             .flat_map(|x| x.objs.iter().copied())
     }
