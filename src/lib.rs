@@ -16,3 +16,5 @@ use storage::SparseStorage;
 
 pub type DenseGrid<O> = Grid<O, DenseStorage>;
 pub type SparseGrid<O> = Grid<O, SparseStorage>;
+
+mod shape;
