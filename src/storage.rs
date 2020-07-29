@@ -1,4 +1,5 @@
 use crate::cell::GridCell;
+use crate::shape::AABB;
 use mint::Point2;
 use std::collections::HashMap;
 
@@ -19,6 +20,8 @@ pub trait Storage {
 
     fn cell_range(&self, ll: Self::Idx, ur: Self::Idx) -> Self::IdxIter;
     fn cell_id(&self, p: Point2<f32>) -> Self::Idx;
+
+    fn cell_aabb(&self, id: Self::Idx) -> AABB;
 }
 
 /// DenseStorage stores cells in a Vec to be used for a Grid.
@@ -127,8 +130,10 @@ impl Storage for DenseStorage {
         let up = self.start_y + self.height as i32 * self.cell_size;
         if y >= up {
             self.height += 1 + (y - up) / self.cell_size;
-            self.cells
-                .resize_with((self.width * self.height) as usize, GridCell::default);
+            if !reallocate {
+                self.cells
+                    .resize_with((self.width * self.height) as usize, GridCell::default);
+            }
         }
 
         if reallocate {
@@ -163,6 +168,23 @@ impl Storage for DenseStorage {
     fn cell_id(&self, pos: Point2<f32>) -> Self::Idx {
         ((pos.y as i32 - self.start_y) / self.cell_size * self.width
             + (pos.x as i32 - self.start_x) / self.cell_size) as usize
+    }
+
+    fn cell_aabb(&self, id: Self::Idx) -> AABB {
+        let x = id as i32 % self.width;
+        let y = id as i32 / self.width;
+
+        let ll = Point2 {
+            x: (self.start_x + x * self.cell_size) as f32,
+            y: (self.start_y + y * self.cell_size) as f32,
+        };
+
+        let ur = Point2 {
+            x: ll.x + self.cell_size as f32,
+            y: ll.y + self.cell_size as f32,
+        };
+
+        AABB::new(ll, ur)
     }
 }
 
@@ -254,6 +276,22 @@ impl Storage for SparseStorage {
 
     fn cell_id(&self, pos: Point2<f32>) -> Self::Idx {
         (pos.x as i32 / self.cell_size, pos.y as i32 / self.cell_size)
+    }
+
+    fn cell_aabb(&self, id: Self::Idx) -> AABB {
+        let (x, y) = id;
+
+        let ll = Point2 {
+            x: (x * self.cell_size) as f32,
+            y: (y * self.cell_size) as f32,
+        };
+
+        let ur = Point2 {
+            x: ll.x + self.cell_size as f32,
+            y: ll.y + self.cell_size as f32,
+        };
+
+        AABB::new(ll, ur)
     }
 }
 

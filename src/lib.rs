@@ -8,9 +8,12 @@
 
 pub mod cell;
 pub mod grid;
+pub mod shapegrid;
 pub mod storage;
 
 pub use grid::Grid;
+pub use shapegrid::ShapeGrid;
+
 use storage::DenseStorage;
 use storage::SparseStorage;
 

@@ -10,6 +10,10 @@ pub struct GridCell {
     pub dirty: bool,
 }
 
+pub struct ShapeGridCell {
+    pub objs: Vec<ShapeGridHandle>,
+}
+
 impl GridCell {
     pub fn maintain<T: Copy, U: Copy + Eq>(
         &mut self,

@@ -1,8 +1,8 @@
 use criterion::{black_box, criterion_group, criterion_main, Criterion};
+use flat_spatial::storage::DenseStorage;
+use flat_spatial::{DenseGrid, SparseGrid};
 use rstar::{RTree, RTreeObject};
 use std::time::{Duration, Instant};
-use flat_spatial::{SparseGrid, DenseGrid};
-use flat_spatial::storage::DenseStorage;
 
 // Density: 0.4 pop/m^2
 const QUERY_POP: i32 = 100_000;
@@ -26,7 +26,8 @@ impl RTreeObject for Rtreedata {
 }
 
 fn query_setup(s: i32) -> DenseGrid<Data> {
-    let mut grid: DenseGrid<Data> = DenseGrid::with_storage(DenseStorage::new_centered(s, SIZE as i32 / s));
+    let mut grid: DenseGrid<Data> =
+        DenseGrid::with_storage(DenseStorage::new_centered(s, SIZE as i32 / s));
     (0..QUERY_POP).for_each(|_| {
         let r = rand::random::<[f32; 7]>();
         grid.insert([SIZE * r[0], SIZE * r[1]], [r[2], r[3], r[4], r[5], r[6]]);
@@ -135,7 +136,8 @@ fn query(c: &mut Criterion) {
 }
 
 fn maintain_densegrid(s: i32, iter: u64) -> Duration {
-    let mut grid: DenseGrid<Data> = DenseGrid::with_storage(DenseStorage::new_centered(s, SIZE as i32 / s));
+    let mut grid: DenseGrid<Data> =
+        DenseGrid::with_storage(DenseStorage::new_centered(s, SIZE as i32 / s));
     let mut handles = Vec::with_capacity(iter as usize);
     for _ in 0..iter {
         let r = rand::random::<[f32; 7]>();
@@ -258,6 +260,6 @@ fn simple_bench() {
     println!("maintain kdtree bulk simple 10M: {}ms", t.as_millis());
 }
 
-criterion_group!(benches,maintain, query);
+criterion_group!(benches, maintain, query);
 
 criterion_main!(simple_bench, benches);
