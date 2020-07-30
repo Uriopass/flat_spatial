@@ -1,6 +1,6 @@
 [package]
 name = "flat_spatial"
-version = "0.2.0"
+version = "0.3.0"
 authors = ["Douady Pâris <paris.douady@hotmail.fr>"]
 edition = "2018"
 keywords = ["algorithms", "spatial", "geometry", "grid", "data-structures"]
