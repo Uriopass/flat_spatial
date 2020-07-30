@@ -331,6 +331,6 @@ fn simple_bench() {
     println!("maintain kdtree bulk simple 5M: {}ms", t.as_millis());
 }
 
-criterion_group!(benches, maintain, query);
+criterion_group!(benches, query, maintain);
 
 criterion_main!(simple_bench, benches);

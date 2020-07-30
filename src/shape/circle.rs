@@ -23,11 +23,65 @@ impl Shape for Circle {
 
 impl Intersect<AABB> for Circle {
     fn intersects(&self, b: AABB) -> bool {
-        b.contains(self.center)
-            || b.segments().any(|x| {
-                let p = x.project(self.center);
-                dot(p, p) < self.radius * self.radius
-            })
+        let r1 = AABB {
+            ll: Point2 {
+                x: b.ll.x - self.radius,
+                y: b.ll.y,
+            },
+            ur: Point2 {
+                x: b.ur.x + self.radius,
+                y: b.ur.y,
+            },
+        };
+
+        let r2 = AABB {
+            ll: Point2 {
+                x: b.ll.x,
+                y: b.ll.y - self.radius,
+            },
+            ur: Point2 {
+                x: b.ur.x,
+                y: b.ur.y + self.radius,
+            },
+        };
+
+        if r1.contains(self.center) || r2.contains(self.center) {
+            return true;
+        }
+        let r3 = AABB {
+            ll: Point2 {
+                x: b.ll.x - self.radius,
+                y: b.ll.y - self.radius,
+            },
+            ur: Point2 {
+                x: b.ur.x + self.radius,
+                y: b.ur.y + self.radius,
+            },
+        };
+
+        if !r3.contains(self.center) {
+            return false;
+        }
+
+        let ul = Point2 {
+            x: b.ll.x - self.center.x,
+            y: b.ur.y - self.center.y,
+        };
+        let lr = Point2 {
+            x: b.ur.x - self.center.x,
+            y: b.ll.y - self.center.y,
+        };
+        let ll = Point2 {
+            x: b.ll.x - self.center.x,
+            y: b.ll.y - self.center.y,
+        };
+        let ur = Point2 {
+            x: b.ur.x - self.center.x,
+            y: b.ur.y - self.center.y,
+        };
+
+        let r2 = self.radius.powi(2);
+        dot(ul, ul) < r2 || dot(lr, lr) < r2 || dot(ll, ll) < r2 || dot(ur, ur) < r2
     }
 }
 

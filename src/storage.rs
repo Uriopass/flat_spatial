@@ -193,8 +193,9 @@ impl<T: Default> Storage<T> for DenseStorage<T> {
     }
 
     fn cell_id(&self, pos: Point2<f32>) -> Self::Idx {
-        ((pos.y as i32 - self.start_y) / self.cell_size * self.width
-            + (pos.x as i32 - self.start_x) / self.cell_size) as usize
+        (((pos.y as i32 - self.start_y).max(0) / self.cell_size * self.width
+            + (pos.x as i32 - self.start_x).max(0) / self.cell_size) as usize)
+            .min(self.cells.len())
     }
 
     fn cell_aabb(&self, id: Self::Idx) -> AABB {

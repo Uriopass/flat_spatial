@@ -476,6 +476,15 @@ mod tests {
     }
 
     #[test]
+    fn test_very_far() {
+        let mut g: Grid<()> = Grid::new(10);
+        let a = g.insert([3.0, 4.0], ());
+
+        let far: Vec<_> = g.query_around([0.0, 0.0], 5.1).map(|x| x.0).collect();
+        assert_eq!(far, vec![a]);
+    }
+
+    #[test]
     fn test_change_position() {
         let mut g: Grid<()> = Grid::new(10);
         let a = g.insert([0.0, 0.0], ());
