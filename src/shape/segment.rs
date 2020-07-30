@@ -1,6 +1,6 @@
 pub use super::*;
 
-#[derive(Clone, Copy)]
+#[derive(Clone, Copy, Debug)]
 pub struct Segment {
     pub src: Point2<f32>,
     pub dst: Point2<f32>,

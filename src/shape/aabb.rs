@@ -1,7 +1,7 @@
 pub use super::*;
 use mint::Point2;
 
-#[derive(Clone, Copy)]
+#[derive(Clone, Copy, Debug)]
 pub struct AABB {
     /// Lower left of the AABB
     pub ll: Point2<f32>,

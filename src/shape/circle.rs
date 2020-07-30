@@ -1,6 +1,6 @@
 pub use super::*;
 
-#[derive(Clone, Copy)]
+#[derive(Clone, Copy, Debug)]
 pub struct Circle {
     pub center: Point2<f32>,
     pub radius: f32,

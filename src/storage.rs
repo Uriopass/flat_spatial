@@ -281,7 +281,7 @@ impl<T: Default> Storage<T> for SparseStorage<T> {
     }
 
     fn cell_mut_unchecked(&mut self, id: Self::Idx) -> &mut T {
-        self.cells.get_mut(&id).unwrap()
+        self.cells.entry(id).or_default()
     }
 
     fn cell(&self, id: Self::Idx) -> Option<&T> {

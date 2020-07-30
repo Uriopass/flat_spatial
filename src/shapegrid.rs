@@ -428,8 +428,57 @@ mod tests {
 
 #[cfg(test)]
 mod testssparse {
-    use crate::shape::AABB;
+    use crate::shape::{Circle, AABB};
+    use crate::storage::Storage;
     use crate::SparseShapeGrid;
+
+    #[test]
+    fn test_no_cell() {
+        let mut g: SparseShapeGrid<(), Circle> = SparseShapeGrid::new(10);
+        g.insert(
+            Circle {
+                center: [15.0, 15.0].into(),
+                radius: 6.0,
+            },
+            (),
+        );
+
+        let s = g.storage();
+        assert!(s
+            .cell(s.cell_id([1.0, 1.0].into()))
+            .unwrap()
+            .objs
+            .is_empty());
+    }
+
+    #[test]
+    fn test_circle_inter() {
+        let c = Circle {
+            center: [15.0, 15.0].into(),
+            radius: 6.0,
+        };
+        let mut g: SparseShapeGrid<(), Circle> = SparseShapeGrid::new(10);
+        let a = g.insert(c, ());
+
+        assert_eq!(
+            g.query(Circle {
+                center: [5.0, 5.0].into(),
+                radius: 6.0,
+            })
+            .count(),
+            0
+        );
+
+        assert_eq!(
+            g.query(Circle {
+                center: [5.0, 5.0].into(),
+                radius: 10.0,
+            })
+            .next()
+            .map(|x| x.0),
+            Some(a)
+        );
+    }
 
     #[test]
     fn test_small_query() {
