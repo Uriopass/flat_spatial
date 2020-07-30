@@ -1,6 +1,6 @@
 use criterion::{black_box, criterion_group, criterion_main, Criterion};
 use flat_spatial::storage::DenseStorage;
-use flat_spatial::{DenseGrid, SparseGrid};
+use flat_spatial::{DenseGrid, ShapeGrid, SparseGrid};
 use rstar::{RTree, RTreeObject};
 use std::time::{Duration, Instant};
 
@@ -44,6 +44,15 @@ fn query_setup_sparse(s: i32) -> SparseGrid<Data> {
     grid
 }
 
+fn query_setup_shape(s: i32) -> ShapeGrid<Data, [f32; 2]> {
+    let mut grid = ShapeGrid::new(s);
+    (0..QUERY_POP).for_each(|_| {
+        let r = rand::random::<[f32; 7]>();
+        grid.insert([SIZE * r[0], SIZE * r[1]], [r[2], r[3], r[4], r[5], r[6]]);
+    });
+    grid
+}
+
 #[inline(never)]
 fn query_5_densegrid(g: &DenseGrid<Data>, iter: u64) -> Duration {
     let grid = g.clone();
@@ -61,6 +70,21 @@ fn query_5_densegrid(g: &DenseGrid<Data>, iter: u64) -> Duration {
 
 #[inline(never)]
 fn query_5_sparsegrid(g: &SparseGrid<Data>, iter: u64) -> Duration {
+    let grid = g.clone();
+    let start = Instant::now();
+
+    for _ in 0..iter {
+        let pos = [rand::random::<f32>() * SIZE, rand::random::<f32>() * SIZE];
+        for x in grid.query_around(pos, 5.0) {
+            black_box(x);
+        }
+    }
+
+    start.elapsed()
+}
+
+#[inline(never)]
+fn query_5_shapegrid(g: &ShapeGrid<Data, [f32; 2]>, iter: u64) -> Duration {
     let grid = g.clone();
     let start = Instant::now();
 
@@ -100,6 +124,10 @@ fn query(c: &mut Criterion) {
     let sg10 = query_setup_sparse(10);
     let sg20 = query_setup_sparse(20);
 
+    let sh5 = query_setup_shape(5);
+    let sh10 = query_setup_shape(10);
+    let sh20 = query_setup_shape(20);
+
     let mut tree = RTree::new();
     (0..QUERY_POP).for_each(|_| {
         let r = rand::random::<[f32; 7]>();
@@ -127,6 +155,16 @@ fn query(c: &mut Criterion) {
     });
     c.bench_function("query sparseGrid20", |b| {
         b.iter_custom(|iter| query_5_sparsegrid(&sg20, iter))
+    });
+
+    c.bench_function("query shapeGrid05", |b| {
+        b.iter_custom(|iter| query_5_shapegrid(&sh5, iter))
+    });
+    c.bench_function("query shapeGrid10", |b| {
+        b.iter_custom(|iter| query_5_shapegrid(&sh10, iter))
+    });
+    c.bench_function("query shapeGrid20", |b| {
+        b.iter_custom(|iter| query_5_shapegrid(&sh20, iter))
     });
 
     c.bench_function("query kdtree", |b| {
@@ -170,6 +208,22 @@ fn maintain_sparsegrid(s: i32, iter: u64) -> Duration {
     start.elapsed()
 }
 
+fn maintain_shapegrid(s: i32, iter: u64) -> Duration {
+    let mut grid: ShapeGrid<Data, [f32; 2]> = ShapeGrid::new(s);
+    let mut handles = Vec::with_capacity(iter as usize);
+    for _ in 0..iter {
+        let r = rand::random::<[f32; 7]>();
+        handles.push(grid.insert([SIZE * r[0], SIZE * r[1]], [r[2], r[3], r[4], r[5], r[6]]));
+    }
+    let start = Instant::now();
+
+    for h in handles {
+        grid.set_shape(h, [rand::random(), rand::random()]);
+    }
+
+    start.elapsed()
+}
+
 fn maintain_kdtree_seq(iter: u64) -> Duration {
     let start = Instant::now();
     let mut tree = RTree::new();
@@ -206,19 +260,28 @@ fn maintain(c: &mut Criterion) {
         b.iter_custom(|iter| maintain_densegrid(black_box(5), iter))
     });
     g.bench_function("maintain densegrid10", |b| {
-        b.iter_custom(|iter| maintain_densegrid(black_box(5), iter))
+        b.iter_custom(|iter| maintain_densegrid(black_box(10), iter))
     });
     g.bench_function("maintain densegrid20", |b| {
-        b.iter_custom(|iter| maintain_densegrid(black_box(5), iter))
+        b.iter_custom(|iter| maintain_densegrid(black_box(20), iter))
     });
     g.bench_function("maintain sparsegrid5", |b| {
         b.iter_custom(|iter| maintain_sparsegrid(black_box(5), iter))
     });
     g.bench_function("maintain sparsegrid10", |b| {
-        b.iter_custom(|iter| maintain_sparsegrid(black_box(5), iter))
+        b.iter_custom(|iter| maintain_sparsegrid(black_box(10), iter))
     });
     g.bench_function("maintain sparsegrid20", |b| {
-        b.iter_custom(|iter| maintain_sparsegrid(black_box(5), iter))
+        b.iter_custom(|iter| maintain_sparsegrid(black_box(20), iter))
+    });
+    g.bench_function("maintain shapegrid5", |b| {
+        b.iter_custom(|iter| maintain_shapegrid(black_box(5), iter))
+    });
+    g.bench_function("maintain shapegrid10", |b| {
+        b.iter_custom(|iter| maintain_shapegrid(black_box(10), iter))
+    });
+    g.bench_function("maintain shapegrid20", |b| {
+        b.iter_custom(|iter| maintain_shapegrid(black_box(20), iter))
     });
     g.bench_function("maintain kdtree", |b| {
         b.iter_custom(|iter| maintain_kdtree_seq(black_box(iter)))
@@ -231,12 +294,16 @@ fn maintain(c: &mut Criterion) {
 
 fn simple_bench() {
     let g5 = query_setup(10);
-    let t = query_5_densegrid(&g5, 1000000);
+    let t = query_5_densegrid(&g5, 1_000_000);
     println!("query 5 dense simple 1M: {}ms", t.as_millis());
 
     let sg5 = query_setup_sparse(10);
-    let t = query_5_sparsegrid(&sg5, 1000000);
+    let t = query_5_sparsegrid(&sg5, 1_000_000);
     println!("query 5 sparse simple 1M: {}ms", t.as_millis());
+
+    let sg5 = query_setup_shape(10);
+    let t = query_5_shapegrid(&sg5, 1_000_000);
+    println!("query 5 shape simple 1M: {}ms", t.as_millis());
 
     let mut tree = RTree::new();
     (0..QUERY_POP).for_each(|_| {
@@ -250,14 +317,18 @@ fn simple_bench() {
     let t = query_5_kdtree(&tree, 1000000);
     println!("query 5 kdtree simple 1M: {}ms", t.as_millis());
 
-    let t = maintain_densegrid(10, 10_000_000);
-    println!("maintain dense simple 10M: {}ms", t.as_millis());
+    const M: u64 = 5_000_000;
+    let t = maintain_densegrid(10, M);
+    println!("maintain dense simple 5M: {}ms", t.as_millis());
 
-    let t = maintain_sparsegrid(10, 10_000_000);
-    println!("maintain sparse simple 10M: {}ms", t.as_millis());
+    let t = maintain_sparsegrid(10, M);
+    println!("maintain sparse simple 5M: {}ms", t.as_millis());
 
-    let t = maintain_kdtree_bulk(10_000_000);
-    println!("maintain kdtree bulk simple 10M: {}ms", t.as_millis());
+    let t = maintain_shapegrid(10, M);
+    println!("maintain shape simple 5M: {}ms", t.as_millis());
+
+    let t = maintain_kdtree_bulk(M);
+    println!("maintain kdtree bulk simple 5M: {}ms", t.as_millis());
 }
 
 criterion_group!(benches, maintain, query);

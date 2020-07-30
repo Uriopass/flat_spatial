@@ -314,15 +314,19 @@ impl<S: Shape, ST: Storage<ShapeGridCell>, O: Copy> ShapeGrid<O, S, ST> {
     ///
     /// assert_eq!(vec![a], around); // a is given even if it doesn't intersect, because this only looks at the cells
     /// ```
-    pub fn query_broad<QS: Shape>(&self, shape: QS) -> impl Iterator<Item = ShapeGridHandle> + '_ {
+    pub fn query_broad<QS: Shape + 'static>(
+        &self,
+        shape: QS,
+    ) -> impl Iterator<Item = ShapeGridHandle> + '_ {
         let bbox = shape.bbox();
-
-        let ll_id = self.storage.cell_id(bbox.ll);
-        let ur_id = self.storage.cell_id(bbox.ur);
-
         let storage = &self.storage;
+
+        let ll_id = storage.cell_id(bbox.ll);
+        let ur_id = storage.cell_id(bbox.ur);
+
         storage
             .cell_range(ll_id, ur_id)
+            .filter(move |&id| shape.intersects(storage.cell_aabb(id)))
             .flat_map(move |id| storage.cell(id))
             .flat_map(|x| x.objs.iter().copied())
     }
