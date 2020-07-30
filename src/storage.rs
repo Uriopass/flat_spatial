@@ -193,9 +193,13 @@ impl<T: Default> Storage<T> for DenseStorage<T> {
     }
 
     fn cell_id(&self, pos: Point2<f32>) -> Self::Idx {
-        (((pos.y as i32 - self.start_y).max(0) / self.cell_size * self.width
-            + (pos.x as i32 - self.start_x).max(0) / self.cell_size) as usize)
-            .min(self.cells.len())
+        (((pos.y as i32 - self.start_y) / self.cell_size)
+            .max(0)
+            .min(self.height)
+            * self.width
+            + ((pos.x as i32 - self.start_x) / self.cell_size)
+                .max(0)
+                .min(self.width)) as usize
     }
 
     fn cell_aabb(&self, id: Self::Idx) -> AABB {
@@ -224,6 +228,36 @@ pub struct DenseIter {
     cur: usize,
 }
 
+#[cfg(test)]
+mod tests {
+    use super::DenseIter;
+    use crate::cell::GridCell;
+    use crate::storage::{DenseStorage, Storage};
+
+    #[test]
+    fn test_dense_iter_manual() {
+        let x = DenseIter {
+            ur: 8,
+            width: 5,
+            diff: 3,
+            c: 0,
+            cur: 1,
+        };
+
+        assert_eq!(x.collect::<Vec<_>>(), vec![1, 2, 3, 6, 7, 8])
+    }
+
+    #[test]
+    fn test_dense_iter() {
+        let s = DenseStorage::<GridCell>::new_rect(10, 0, 0, 5, 2);
+
+        assert_eq!(
+            s.cell_range(1, 8).collect::<Vec<_>>(),
+            vec![1, 2, 3, 6, 7, 8]
+        )
+    }
+}
+
 impl Iterator for DenseIter {
     type Item = usize;
 
@@ -236,8 +270,8 @@ impl Iterator for DenseIter {
         self.c += 1;
         self.cur += 1;
         if self.c == self.diff {
-            self.cur -= self.diff;
-            self.cur += self.width;
+            self.c = 0;
+            self.cur += self.width - self.diff;
         }
         Some(v)
     }

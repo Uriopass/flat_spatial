@@ -26,8 +26,7 @@ impl RTreeObject for Rtreedata {
 }
 
 fn query_setup(s: i32) -> DenseGrid<Data> {
-    let mut grid: DenseGrid<Data> =
-        DenseGrid::with_storage(DenseStorage::new_centered(s, SIZE as i32 / s));
+    let mut grid: DenseGrid<Data> = DenseGrid::new(s);
     (0..QUERY_POP).for_each(|_| {
         let r = rand::random::<[f32; 7]>();
         grid.insert([SIZE * r[0], SIZE * r[1]], [r[2], r[3], r[4], r[5], r[6]]);
@@ -293,7 +292,7 @@ fn maintain(c: &mut Criterion) {
 }
 
 fn simple_bench() {
-    let g5 = query_setup(10);
+    let g5 = query_setup(5);
     let t = query_5_densegrid(&g5, 1_000_000);
     println!("query 5 dense simple 1M: {}ms", t.as_millis());
 
