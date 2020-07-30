@@ -106,11 +106,7 @@ impl<ST: Storage<GridCell>, O: Copy> Grid<O, ST> {
     /// Creates an empty grid.   
     /// The cell size should be about the same magnitude as your queries size.
     pub fn new(cell_size: i32) -> Self {
-        Self {
-            storage: ST::new(cell_size),
-            objects: SlotMap::with_key(),
-            to_relocate: Default::default(),
-        }
+        Self::with_storage(ST::new(cell_size))
     }
 
     /// Creates an empty grid.   
@@ -119,7 +115,7 @@ impl<ST: Storage<GridCell>, O: Copy> Grid<O, ST> {
         Self {
             storage: st,
             objects: SlotMap::with_key(),
-            to_relocate: Default::default(),
+            to_relocate: vec![],
         }
     }
 
