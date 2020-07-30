@@ -521,6 +521,18 @@ mod tests {
         let q: Vec<_> = g.query_around([0.0, 1000.0], 5.0).map(|x| x.0).collect();
         assert_eq!(q, vec![b]);
     }
+
+    #[test]
+    fn test_big_query_around_vert() {
+        let mut g: DenseShapeGrid<(), [f32; 2]> = DenseShapeGrid::new(10);
+
+        for i in 0..100 {
+            g.insert([0.0, i as f32], ());
+        }
+
+        let q: Vec<_> = g.query_around([0.0, 15.0], 9.5).map(|x| x.0).collect();
+        assert_eq!(q.len(), 19); // 1 middle, 8 left, 8 right
+    }
 }
 
 #[cfg(test)]
@@ -528,6 +540,18 @@ mod testssparse {
     use crate::shape::{Circle, AABB};
     use crate::storage::Storage;
     use crate::SparseShapeGrid;
+
+    #[test]
+    fn test_big_query_around_vert() {
+        let mut g: SparseShapeGrid<(), [f32; 2]> = SparseShapeGrid::new(10);
+
+        for i in 0..100 {
+            g.insert([0.0, i as f32], ());
+        }
+
+        let q: Vec<_> = g.query_around([0.0, 15.0], 9.5).map(|x| x.0).collect();
+        assert_eq!(q.len(), 19); // 1 middle, 8 left, 8 right
+    }
 
     #[test]
     fn test_no_cell() {

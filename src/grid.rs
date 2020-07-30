@@ -449,6 +449,18 @@ mod tests {
     }
 
     #[test]
+    fn test_big_query_around_vert() {
+        let mut g: Grid<()> = Grid::new(10);
+
+        for i in 0..100 {
+            g.insert([0.0, i as f32], ());
+        }
+
+        let q: Vec<_> = g.query_around([0.0, 15.0], 9.5).map(|x| x.0).collect();
+        assert_eq!(q.len(), 19); // 1 middle, 8 left, 8 right
+    }
+
+    #[test]
     fn test_big_query_rect() {
         let mut g: Grid<()> = Grid::new(10);
 
@@ -568,6 +580,18 @@ mod testssparse {
         }
 
         let q: Vec<_> = g.query_around([15.0, 0.0], 9.5).map(|x| x.0).collect();
+        assert_eq!(q.len(), 19); // 1 middle, 8 left, 8 right
+    }
+
+    #[test]
+    fn test_big_query_around_vert() {
+        let mut g = SparseGrid::new(10);
+
+        for i in 0..100 {
+            g.insert([0.0, i as f32], ());
+        }
+
+        let q: Vec<_> = g.query_around([0.0, 15.0], 9.5).map(|x| x.0).collect();
         assert_eq!(q.len(), 19); // 1 middle, 8 left, 8 right
     }
 
