@@ -179,7 +179,7 @@ impl<ST: Storage<GridCell>, O: Copy> Grid<O, ST> {
             .objects
             .get_mut(handle)
             .expect("Object not in grid anymore");
-        if matches!(obj.state, ObjectState::Removed) {
+        if !matches!(obj.state, ObjectState::Removed) {
             let target_id = self.storage.cell_id(pos);
 
             obj.state = if target_id == obj.cell_id {

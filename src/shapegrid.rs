@@ -50,8 +50,13 @@ pub struct StoreObject<O: Copy, S: Shape> {
 ///
 /// ```rust
 /// use flat_spatial::ShapeGrid;
-/// let mut g = ShapeGrid::new(10);
-/// let handle = g.insert([0.0, 0.0], ());
+/// use flat_spatial::shape::Circle;
+///
+/// let mut g: ShapeGrid<(), Circle> = ShapeGrid::new(10);
+/// let handle = g.insert(Circle {
+///     center: [0.0, 0.0].into(),
+///     radius: 3.0,
+/// }, ());
 /// // Use handle however you want
 /// ```
 ///
@@ -59,26 +64,33 @@ pub struct StoreObject<O: Copy, S: Shape> {
 /// Here is a basic example that shows most of its capabilities:
 /// ```rust
 /// use flat_spatial::ShapeGrid;
+/// use flat_spatial::shape::Circle;
 ///
-/// let mut g = ShapeGrid::new(10); // Creates a new grid with a cell width of 10 with an integer as extra data
-/// let a = g.insert([0.0, 0.0], 0); // Inserts a new element with data: 0
+/// let mut g: ShapeGrid<i32, Circle> = ShapeGrid::new(10); // Creates a new grid with a cell width of 10 with an integer as extra data
+/// let a = g.insert(Circle {
+///      center: [2.0, 2.0].into(),
+///      radius: 3.0,
+/// }, 0); // Inserts a new circle with data: 0
 ///
 /// {
-///     let mut before = g.query_around([0.0, 0.0], 5.0).map(|(id, _pos)| id); // Queries for objects around a given point
+///     let mut before = g.query_around([0.0, 0.0], 5.0).map(|(id, _shape, _obj)| id); // Queries for circles intersecting around a given point
 ///     assert_eq!(before.next(), Some(a));
 ///     assert_eq!(g.get(a).unwrap().1, &0);
 /// }
-/// let b = g.insert([0.0, 0.0], 1); // Inserts a new element, assigning a new unique and stable handle, with data: 1
+/// let b = g.insert(Circle {
+///      center: [1.0, 1.0].into(),
+///      radius: 3.0,
+/// }, 1); // Inserts a new element, assigning a new unique and stable handle, with data: 1
 ///
 /// g.remove(a); // Removes a value using the handle given by `insert`
 ///
 /// assert_eq!(g.handles().collect::<Vec<_>>(), vec![b]); // We check that the "a" object has been removed
 ///
-/// let after: Vec<_> = g.query_around([0.0, 0.0], 5.0).map(|(id, _pos)| id).collect(); // And that b is query-able
+/// let after: Vec<_> = g.query_around([0.0, 0.0], 5.0).map(|(id, _shape, _obj)| id).collect(); // And that b is query-able
 /// assert_eq!(after, vec![b]);
 ///
 /// assert_eq!(g.get(b).unwrap().1, &1); // We also check that b still has his data associated
-/// assert_eq!(g.get(a), None); // But that a doesn't exist anymore
+/// assert!(g.get(a).is_none()); // But that a doesn't exist anymore
 /// ```
 #[derive(Clone)]
 pub struct ShapeGrid<O: Copy, S: Shape, ST: Storage<ShapeGridCell> = SparseStorage<ShapeGridCell>> {
@@ -122,9 +134,12 @@ impl<S: Shape, ST: Storage<ShapeGridCell>, O: Copy> ShapeGrid<O, S, ST> {
     ///
     /// # Example
     /// ```rust
-    /// use flat_spatial::ShapeGrid;
-    /// let mut g = ShapeGrid::new(10);
-    /// let h = g.insert([5.0, 3.0], ());
+    /// use flat_spatial::{ShapeGrid, shape::Circle};
+    /// let mut g: ShapeGrid<(), Circle> = ShapeGrid::new(10);
+    /// let h = g.insert(Circle {
+    ///      center: [2.0, 2.0].into(),
+    ///      radius: 3.0,
+    /// }, ());
     /// ```
     pub fn insert(&mut self, shape: S, obj: O) -> ShapeGridHandle {
         let Self {
@@ -138,15 +153,21 @@ impl<S: Shape, ST: Storage<ShapeGridCell>, O: Copy> ShapeGrid<O, S, ST> {
         h
     }
 
-    /// Lazily sets the position of an object (if it is not marked for deletion).
-    /// This won't be taken into account until maintain() is called.  
+    /// Updates the shape of an object.
     ///
     /// # Example
     /// ```rust
-    /// use flat_spatial::ShapeGrid;
-    /// let mut g = ShapeGrid::new(10);
-    /// let h = g.insert([5.0, 3.0], ());
-    /// g.set_position(h, [3.0, 3.0]);
+    /// use flat_spatial::{ShapeGrid, shape::Circle};
+    /// let mut g: ShapeGrid<(), Circle> = ShapeGrid::new(10);
+    /// let h = g.insert(Circle {
+    ///      center: [2.0, 2.0].into(),
+    ///      radius: 3.0,
+    /// }, ());
+    ///
+    /// g.set_shape(h, Circle {
+    ///      center: [61.0, 35.0].into(),
+    ///      radius: 8.0,
+    /// });
     /// ```
     pub fn set_shape(&mut self, handle: ShapeGridHandle, shape: S) {
         let obj = self
@@ -169,14 +190,16 @@ impl<S: Shape, ST: Storage<ShapeGridCell>, O: Copy> ShapeGrid<O, S, ST> {
         obj.shape = shape;
     }
 
-    /// Lazily removes an object from the grid.
-    /// This won't be taken into account until maintain() is called.  
+    /// Removes an object from the grid.
     ///
     /// # Example
     /// ```rust
-    /// use flat_spatial::ShapeGrid;
-    /// let mut g = ShapeGrid::new(10);
-    /// let h = g.insert([5.0, 3.0], ());
+    /// use flat_spatial::{ShapeGrid, shape::Circle};
+    /// let mut g: ShapeGrid<(), Circle> = ShapeGrid::new(10);
+    /// let h = g.insert(Circle {
+    ///      center: [2.0, 2.0].into(),
+    ///      radius: 3.0,
+    /// }, ());
     /// g.remove(h);
     /// ```
     pub fn remove(&mut self, handle: ShapeGridHandle) {
@@ -204,10 +227,10 @@ impl<S: Shape, ST: Storage<ShapeGridCell>, O: Copy> ShapeGrid<O, S, ST> {
     ///
     /// # Example
     /// ```rust
-    /// use flat_spatial::ShapeGrid;
-    /// let mut g = ShapeGrid::new(10);
+    /// use flat_spatial::{ShapeGrid, shape::Circle};
+    /// let mut g: ShapeGrid<i32, [f32; 2]> = ShapeGrid::new(10);
     /// let h = g.insert([5.0, 3.0], 42);
-    /// assert_eq!(g.get(h), Some(([5.0, 3.0].into(), &42)));
+    /// assert_eq!(g.get(h), Some((&[5.0, 3.0], &42)));
     /// ```
     pub fn get(&self, id: ShapeGridHandle) -> Option<(&S, &O)> {
         self.objects.get(id).map(|x| (&x.shape, &x.obj))
@@ -217,8 +240,8 @@ impl<S: Shape, ST: Storage<ShapeGridCell>, O: Copy> ShapeGrid<O, S, ST> {
     ///
     /// # Example
     /// ```rust
-    /// use flat_spatial::ShapeGrid;
-    /// let mut g = ShapeGrid::new(10);
+    /// use flat_spatial::{ShapeGrid, shape::Circle};
+    /// let mut g: ShapeGrid<i32, [f32; 2]> = ShapeGrid::new(10);
     /// let h = g.insert([5.0, 3.0], 42);
     /// *g.get_mut(h).unwrap().1 = 56;
     /// assert_eq!(g.get(h).unwrap().1, &56);
@@ -232,44 +255,59 @@ impl<S: Shape, ST: Storage<ShapeGridCell>, O: Copy> ShapeGrid<O, S, ST> {
         &self.storage
     }
 
-    /// Queries for all objects in the cells intersecting an axis-aligned rectangle defined by lower left (ll) and upper right (ur)
-    /// Try to keep the rect's width/height of similar magnitudes to the cell size for better performance.
+    /// Queries for objects intersecting a given shape.
     ///
     /// # Example
     /// ```rust
-    /// use flat_spatial::ShapeGrid;
+    /// use flat_spatial::{ShapeGrid, shape::Circle};
     ///
-    /// let mut g = ShapeGrid::new(10);
-    /// let a = g.insert([0.0, 0.0], ());
-    /// let b = g.insert([5.0, 5.0], ());
+    /// let mut g: ShapeGrid<(), Circle> = ShapeGrid::new(10);
+    /// let a = g.insert(Circle {
+    ///      center: [2.0, 2.0].into(),
+    ///      radius: 3.0,
+    /// }, ());
+    /// let b = g.insert(Circle {
+    ///      center: [5.0, 2.0].into(),
+    ///      radius: 3.0,
+    /// }, ());
     ///
-    /// let around: Vec<_> = g.query_raw([-1.0, -1.0].into(), [1.0, 1.0].into()).map(|(id, _pos)| id).collect();
+    /// let around: Vec<_> = g.query(Circle {
+    ///      center: [0.0, 0.0].into(),
+    ///      radius: 10.0,
+    /// }).map(|(id, _shape, _obj)| id).collect();
     ///
     /// assert_eq!(vec![a, b], around);
     /// ```
     pub fn query<QS: Shape + Intersect<S> + 'static>(
         &self,
         shape: QS,
-    ) -> impl Iterator<Item = (ShapeGridHandle, &S)> + '_ {
+    ) -> impl Iterator<Item = (ShapeGridHandle, &S, &O)> + '_ {
         self.query_broad(shape)
-            .map(move |h| (h, &self.objects[h].shape))
-            .filter(move |(_, x)| shape.intersects(**x))
+            .map(move |h| {
+                let obj = &self.objects[h];
+                (h, &obj.shape, &obj.obj)
+            })
+            .filter(move |&(_, x, _)| shape.intersects(*x))
     }
 
-    /// Queries for all objects in the cells intersecting an axis-aligned rectangle defined by lower left (ll) and upper right (ur)
-    /// Try to keep the rect's width/height of similar magnitudes to the cell size for better performance.
+    /// Queries for all objects in the cells intersecting the given shape
     ///
     /// # Exampley
     /// ```rust
-    /// use flat_spatial::ShapeGrid;
+    /// use flat_spatial::{ShapeGrid, shape::Circle};
     ///
-    /// let mut g = ShapeGrid::new(10);
-    /// let a = g.insert([0.0, 0.0], ());
-    /// let b = g.insert([5.0, 5.0], ());
+    /// let mut g: ShapeGrid<(), Circle> = ShapeGrid::new(10);
+    /// let a = g.insert(Circle {
+    ///      center: [5.0, 5.0].into(),
+    ///      radius: 1.0,
+    /// }, ());
     ///
-    /// let around: Vec<_> = g.query_raw([-1.0, -1.0].into(), [1.0, 1.0].into()).map(|(id, _pos)| id).collect();
+    /// let around: Vec<_> = g.query_broad(Circle {
+    ///      center: [0.0, 0.0].into(),
+    ///      radius: 1.0,
+    /// }).collect();
     ///
-    /// assert_eq!(vec![a, b], around);
+    /// assert_eq!(vec![a], around); // a is given even if it doesn't intersect, because this only looks at the cells
     /// ```
     pub fn query_broad<QS: Shape>(&self, shape: QS) -> impl Iterator<Item = ShapeGridHandle> + '_ {
         let bbox = shape.bbox();
@@ -301,11 +339,12 @@ impl<S: Shape, ST: Storage<ShapeGridCell>, O: Copy> ShapeGrid<O, S, ST>
 where
     Circle: Intersect<S>,
 {
+    /// Queries for objects around a point, same as querying a circle at pos with a given radius.
     pub fn query_around(
         &self,
         pos: impl Into<Point2<f32>>,
         radius: f32,
-    ) -> impl Iterator<Item = (ShapeGridHandle, &S)> + '_ {
+    ) -> impl Iterator<Item = (ShapeGridHandle, &S, &O)> + '_ {
         self.query(Circle {
             center: pos.into(),
             radius,
@@ -315,7 +354,8 @@ where
 
 #[cfg(test)]
 mod tests {
-    use crate::shape::AABB;
+    use crate::shape::{Circle, AABB};
+    use crate::storage::Storage;
     use crate::DenseShapeGrid;
 
     #[test]
@@ -392,6 +432,54 @@ mod tests {
 
         let after: Vec<_> = g.query_around([30.0, 30.0], 5.0).map(|x| x.0).collect();
         assert_eq!(after, vec![a]);
+    }
+
+    #[test]
+    fn test_no_cell() {
+        let mut g: DenseShapeGrid<(), Circle> = DenseShapeGrid::new(10);
+        g.insert(
+            Circle {
+                center: [15.0, 15.0].into(),
+                radius: 6.0,
+            },
+            (),
+        );
+
+        let s = g.storage();
+        assert!(s
+            .cell(s.cell_id([1.0, 1.0].into()))
+            .unwrap()
+            .objs
+            .is_empty());
+    }
+
+    #[test]
+    fn test_circle_inter() {
+        let c = Circle {
+            center: [15.0, 15.0].into(),
+            radius: 6.0,
+        };
+        let mut g: DenseShapeGrid<(), Circle> = DenseShapeGrid::new(10);
+        let a = g.insert(c, ());
+
+        assert_eq!(
+            g.query(Circle {
+                center: [5.0, 5.0].into(),
+                radius: 6.0,
+            })
+            .count(),
+            0
+        );
+
+        assert_eq!(
+            g.query(Circle {
+                center: [5.0, 5.0].into(),
+                radius: 10.0,
+            })
+            .next()
+            .map(|x| x.0),
+            Some(a)
+        );
     }
 
     #[test]

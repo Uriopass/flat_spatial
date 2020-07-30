@@ -39,7 +39,7 @@ impl GridCell {
                 ObjectState::Relocate(pos) => {
                     store_obj.state = ObjectState::Unchanged;
                     store_obj.pos = pos;
-                    to_relocate.push((*obj_id, store_obj.pos));
+                    to_relocate.push((*obj_id, pos));
                     false
                 }
                 ObjectState::Removed => {

@@ -8,6 +8,7 @@
 
 pub mod cell;
 pub mod grid;
+pub mod shape;
 pub mod shapegrid;
 pub mod storage;
 
@@ -22,5 +23,3 @@ pub type SparseGrid<O> = Grid<O, SparseStorage<cell::GridCell>>;
 
 pub type DenseShapeGrid<O, S> = ShapeGrid<O, S, DenseStorage<cell::ShapeGridCell>>;
 pub type SparseShapeGrid<O, S> = ShapeGrid<O, S, SparseStorage<cell::ShapeGridCell>>;
-
-mod shape;
