@@ -17,7 +17,10 @@ pub use shapegrid::ShapeGrid;
 use storage::DenseStorage;
 use storage::SparseStorage;
 
-pub type DenseGrid<O> = Grid<O, DenseStorage>;
-pub type SparseGrid<O> = Grid<O, SparseStorage>;
+pub type DenseGrid<O> = Grid<O, DenseStorage<cell::GridCell>>;
+pub type SparseGrid<O> = Grid<O, SparseStorage<cell::GridCell>>;
+
+pub type DenseShapeGrid<O, S> = ShapeGrid<O, S, DenseStorage<cell::ShapeGridCell>>;
+pub type SparseShapeGrid<O, S> = ShapeGrid<O, S, SparseStorage<cell::ShapeGridCell>>;
 
 mod shape;

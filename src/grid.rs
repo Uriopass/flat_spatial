@@ -13,11 +13,11 @@ new_key_type! {
 }
 
 /// State of an object, maintain() updates the internals of the grid and resets this to Unchanged
-#[derive(Clone, Copy, PartialEq, Eq)]
+#[derive(Clone, Copy)]
 pub enum ObjectState {
     Unchanged,
-    NewPos,
-    Relocate,
+    NewPos(Point2<f32>),
+    Relocate(Point2<f32>),
     Removed,
 }
 
@@ -95,14 +95,14 @@ pub struct StoreObject<O: Copy, Idx: Copy> {
 /// assert_eq!(g.get(a), None); // But that a doesn't exist anymore
 /// ```
 #[derive(Clone)]
-pub struct Grid<O: Copy, ST: Storage = SparseStorage> {
+pub struct Grid<O: Copy, ST: Storage<GridCell> = SparseStorage<GridCell>> {
     storage: ST,
     objects: GridObjects<O, ST::Idx>,
     // Cache maintain vec to avoid allocating every time maintain is called
     to_relocate: Vec<CellObject>,
 }
 
-impl<ST: Storage, O: Copy> Grid<O, ST> {
+impl<ST: Storage<GridCell>, O: Copy> Grid<O, ST> {
     /// Creates an empty grid.   
     /// The cell size should be about the same magnitude as your queries size.
     pub fn new(cell_size: i32) -> Self {
@@ -129,15 +129,8 @@ impl<ST: Storage, O: Copy> Grid<O, ST> {
         pos: Point2<f32>,
     ) -> (ST::Idx, &'a mut GridCell) {
         storage.cell_mut(pos, move |storage| {
-            storage.modify(move |cell| cell.objs.clear());
-
-            for (handle, obj) in objects.iter_mut() {
+            for (_, obj) in objects.iter_mut() {
                 obj.cell_id = storage.cell_id(obj.pos);
-                obj.state = ObjectState::Unchanged;
-                storage
-                    .cell_mut_unchecked(obj.cell_id)
-                    .objs
-                    .push((handle, obj.pos));
             }
         })
     }
@@ -186,14 +179,13 @@ impl<ST: Storage, O: Copy> Grid<O, ST> {
             .objects
             .get_mut(handle)
             .expect("Object not in grid anymore");
-        obj.pos = pos;
-        if obj.state != ObjectState::Removed {
+        if matches!(obj.state, ObjectState::Removed) {
             let target_id = self.storage.cell_id(pos);
 
             obj.state = if target_id == obj.cell_id {
-                ObjectState::NewPos
+                ObjectState::NewPos(pos)
             } else {
-                ObjectState::Relocate
+                ObjectState::Relocate(pos)
             };
         }
 
@@ -242,7 +234,10 @@ impl<ST: Storage, O: Copy> Grid<O, ST> {
             ..
         } = self;
 
-        storage.modify(|cell| cell.maintain(objects, to_relocate));
+        storage.modify(|cell| {
+            cell.maintain(objects, to_relocate);
+            cell.objs.is_empty()
+        });
 
         for (handle, pos) in to_relocate.drain(..) {
             Self::cell_mut(storage, objects, pos)

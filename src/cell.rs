@@ -1,4 +1,5 @@
 use crate::grid::{GridHandle, GridObjects, ObjectState};
+use crate::shapegrid::ShapeGridHandle;
 use retain_mut::RetainMut;
 
 pub type CellObject = (GridHandle, mint::Point2<f32>);
@@ -10,6 +11,7 @@ pub struct GridCell {
     pub dirty: bool,
 }
 
+#[derive(Default, Clone)]
 pub struct ShapeGridCell {
     pub objs: Vec<ShapeGridHandle>,
 }
@@ -28,13 +30,15 @@ impl GridCell {
             let store_obj = &mut objects[*obj_id];
 
             match store_obj.state {
-                ObjectState::NewPos => {
+                ObjectState::NewPos(pos) => {
                     store_obj.state = ObjectState::Unchanged;
-                    *obj_pos = store_obj.pos;
+                    store_obj.pos = pos;
+                    *obj_pos = pos;
                     true
                 }
-                ObjectState::Relocate => {
+                ObjectState::Relocate(pos) => {
                     store_obj.state = ObjectState::Unchanged;
+                    store_obj.pos = pos;
                     to_relocate.push((*obj_id, store_obj.pos));
                     false
                 }

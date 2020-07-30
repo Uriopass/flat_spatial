@@ -1,22 +1,22 @@
-use crate::cell::GridCell;
 use crate::shape::AABB;
 use mint::Point2;
 use std::collections::HashMap;
 
 /// The storage trait, implement this if you want to use a custom point storage for the Grid.
-pub trait Storage {
+pub trait Storage<T> {
     type Idx: Copy + Eq;
     type IdxIter: Iterator<Item = Self::Idx>;
 
     fn new(cell_size: i32) -> Self;
 
-    fn modify(&mut self, f: impl FnMut(&mut GridCell));
+    // f returns true if the cell is empty (which may lead to cleaning up)
+    fn modify(&mut self, f: impl FnMut(&mut T) -> bool);
 
-    fn cell_mut<IC>(&mut self, pos: Point2<f32>, on_ids_changed: IC) -> (Self::Idx, &mut GridCell)
+    fn cell_mut<IC>(&mut self, pos: Point2<f32>, on_ids_changed: IC) -> (Self::Idx, &mut T)
     where
         IC: FnMut(&mut Self);
-    fn cell_mut_unchecked(&mut self, id: Self::Idx) -> &mut GridCell;
-    fn cell(&self, id: Self::Idx) -> Option<&GridCell>;
+    fn cell_mut_unchecked(&mut self, id: Self::Idx) -> &mut T;
+    fn cell(&self, id: Self::Idx) -> Option<&T>;
 
     fn cell_range(&self, ll: Self::Idx, ur: Self::Idx) -> Self::IdxIter;
     fn cell_id(&self, p: Point2<f32>) -> Self::Idx;
@@ -26,16 +26,16 @@ pub trait Storage {
 
 /// DenseStorage stores cells in a Vec to be used for a Grid.
 /// It implements the Storage trait.
-pub struct DenseStorage {
+pub struct DenseStorage<T: Default> {
     cell_size: i32,
     start_x: i32,
     start_y: i32,
     width: i32,
     height: i32,
-    cells: Vec<GridCell>,
+    cells: Vec<T>,
 }
 
-impl DenseStorage {
+impl<T: Default> DenseStorage<T> {
     /// Creates a new cell grid centered on zero with width and height defined by size.  
     ///
     /// Note that the size is counted in cells and not in absolute units (!)
@@ -62,12 +62,12 @@ impl DenseStorage {
         }
     }
 
-    pub fn cells(&self) -> &Vec<GridCell> {
+    pub fn cells(&self) -> &Vec<T> {
         &self.cells
     }
 }
 
-impl Storage for DenseStorage {
+impl<T: Default> Storage<T> for DenseStorage<T> {
     type Idx = usize;
     type IdxIter = DenseIter;
 
@@ -82,15 +82,13 @@ impl Storage for DenseStorage {
         }
     }
 
-    fn modify(&mut self, f: impl FnMut(&mut GridCell)) {
-        self.cells.iter_mut().for_each(f)
+    fn modify(&mut self, mut f: impl FnMut(&mut T) -> bool) {
+        self.cells.iter_mut().for_each(|x| {
+            f(x);
+        })
     }
 
-    fn cell_mut<IC>(
-        &mut self,
-        pos: Point2<f32>,
-        mut on_ids_changed: IC,
-    ) -> (Self::Idx, &mut GridCell)
+    fn cell_mut<IC>(&mut self, pos: Point2<f32>, mut on_ids_changed: IC) -> (Self::Idx, &mut T)
     where
         IC: FnMut(&mut Self),
     {
@@ -101,44 +99,73 @@ impl Storage for DenseStorage {
             // First allocation, change start_x and start_y to match pos
             self.start_x = pos.x as i32 / self.cell_size * self.cell_size;
             self.start_y = pos.y as i32 / self.cell_size * self.cell_size;
+            self.width = 1;
+            self.height = 1;
+            self.cells = vec![T::default()];
         }
         let mut reallocate = false;
+
+        let mut padleft = 0;
+        let mut padright = 0;
+        let mut paddown = 0;
+        let mut padup = 0;
 
         let x = pos.x as i32;
         let y = pos.y as i32;
 
+        let right = self.start_x + self.width as i32 * self.cell_size;
+        let up = self.start_y + self.height as i32 * self.cell_size;
+
         if x <= self.start_x {
-            let diff = 1 + (self.start_x - x) / self.cell_size;
-            self.start_x -= self.cell_size * diff;
-            self.width += diff;
+            padleft = 1 + (self.start_x - x) / self.cell_size;
+            self.start_x -= self.cell_size * padleft;
+            self.width += padleft;
+            reallocate = true;
+        } else if x >= right {
+            padright = 1 + (x - right) / self.cell_size;
+            self.width += padright;
             reallocate = true;
         }
 
         if y <= self.start_y {
-            let diff = 1 + (self.start_y - y) / self.cell_size;
-            self.start_y -= self.cell_size * diff;
-            self.height += diff;
+            paddown = 1 + (self.start_y - y) / self.cell_size;
+            self.start_y -= self.cell_size * paddown;
+            self.height += paddown;
             reallocate = true;
-        }
-
-        let right = self.start_x + self.width as i32 * self.cell_size;
-        if x >= right {
-            self.width += 1 + (x - right) / self.cell_size;
-            reallocate = true;
-        }
-
-        let up = self.start_y + self.height as i32 * self.cell_size;
-        if y >= up {
-            self.height += 1 + (y - up) / self.cell_size;
+            paddown = paddown;
+        } else if y >= up {
+            padup = 1 + (y - up) / self.cell_size;
+            self.height += padup;
             if !reallocate {
                 self.cells
-                    .resize_with((self.width * self.height) as usize, GridCell::default);
+                    .resize_with((self.width * self.height) as usize, T::default);
             }
         }
 
         if reallocate {
-            self.cells
-                .resize_with((self.width * self.height) as usize, GridCell::default);
+            let mut newvec = Vec::with_capacity((self.width * self.height) as usize);
+
+            let oldh = self.height - paddown - padup;
+            let oldw = self.width - padleft - padright;
+
+            // use T::default to pad with new cells
+            for _ in 0..paddown {
+                newvec.extend((0..self.width).map(|_| T::default()))
+            }
+            for y in 0..oldh {
+                newvec.extend((0..padleft).map(|_| T::default()));
+                newvec.extend(
+                    (0..oldw).map(|x| {
+                        std::mem::take(self.cells.get_mut((y * oldw + x) as usize).unwrap())
+                    }),
+                );
+                newvec.extend((0..padright).map(|_| T::default()))
+            }
+            for _ in 0..padup {
+                newvec.extend((0..self.width).map(|_| T::default()))
+            }
+
+            self.cells = newvec;
             on_ids_changed(self)
         }
 
@@ -146,11 +173,11 @@ impl Storage for DenseStorage {
         (id, self.cell_mut_unchecked(id))
     }
 
-    fn cell_mut_unchecked(&mut self, id: Self::Idx) -> &mut GridCell {
+    fn cell_mut_unchecked(&mut self, id: Self::Idx) -> &mut T {
         &mut self.cells[id]
     }
 
-    fn cell(&self, id: Self::Idx) -> Option<&GridCell> {
+    fn cell(&self, id: Self::Idx) -> Option<&T> {
         self.cells.get(id)
     }
 
@@ -218,18 +245,18 @@ impl Iterator for DenseIter {
 /// SparseStorage stores cells in a HashMap to be used in a Grid.
 /// It is Sparse because cells are eagerly allocated, and cleaned when they are empty.
 /// It implements the Storage trait.
-pub struct SparseStorage {
+pub struct SparseStorage<T: Default> {
     cell_size: i32,
-    cells: HashMap<(i32, i32), GridCell>,
+    cells: HashMap<(i32, i32), T>,
 }
 
-impl SparseStorage {
-    pub fn cells(&self) -> &HashMap<(i32, i32), GridCell> {
+impl<T: Default> SparseStorage<T> {
+    pub fn cells(&self) -> &HashMap<(i32, i32), T> {
         &self.cells
     }
 }
 
-impl Storage for SparseStorage {
+impl<T: Default> Storage<T> for SparseStorage<T> {
     type Idx = (i32, i32);
     type IdxIter = XYRange;
 
@@ -240,15 +267,12 @@ impl Storage for SparseStorage {
         }
     }
 
-    fn modify(&mut self, mut f: impl FnMut(&mut GridCell)) {
-        self.cells.retain(move |_, cell| {
-            f(cell);
-            !cell.objs.is_empty()
-        });
+    fn modify(&mut self, mut f: impl FnMut(&mut T) -> bool) {
+        self.cells.retain(move |_, cell| !f(cell));
     }
 
     // ids never change
-    fn cell_mut<IC>(&mut self, pos: Point2<f32>, _on_ids_changed: IC) -> (Self::Idx, &mut GridCell)
+    fn cell_mut<IC>(&mut self, pos: Point2<f32>, _: IC) -> (Self::Idx, &mut T)
     where
         IC: FnMut(&mut Self),
     {
@@ -256,11 +280,11 @@ impl Storage for SparseStorage {
         (id, self.cells.entry(id).or_default())
     }
 
-    fn cell_mut_unchecked(&mut self, id: Self::Idx) -> &mut GridCell {
+    fn cell_mut_unchecked(&mut self, id: Self::Idx) -> &mut T {
         self.cells.get_mut(&id).unwrap()
     }
 
-    fn cell(&self, id: Self::Idx) -> Option<&GridCell> {
+    fn cell(&self, id: Self::Idx) -> Option<&T> {
         self.cells.get(&id)
     }
 

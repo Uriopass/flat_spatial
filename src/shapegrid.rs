@@ -1,12 +1,11 @@
-use crate::cell::{CellObject, ShapeGridCell};
-use crate::shape::{Shape, AABB};
+use crate::cell::ShapeGridCell;
+use crate::shape::{Circle, Intersect, Shape};
 use crate::storage::{SparseStorage, Storage};
 use mint::Point2;
 use slotmap::new_key_type;
 use slotmap::SlotMap;
-use std::iter::Filter;
 
-pub type ShapeGridObjects<O, Idx> = SlotMap<ShapeGridHandle, StoreObject<O, Idx>>;
+pub type ShapeGridObjects<O, S> = SlotMap<ShapeGridHandle, StoreObject<O, S>>;
 
 new_key_type! {
     /// This handle is used to modify the associated object or to update its position.
@@ -51,7 +50,7 @@ pub struct StoreObject<O: Copy, S: Shape> {
 ///
 /// ```rust
 /// use flat_spatial::ShapeGrid;
-/// let mut g: ShapeGrid<()> = ShapeGrid::new(10);
+/// let mut g = ShapeGrid::new(10);
 /// let handle = g.insert([0.0, 0.0], ());
 /// // Use handle however you want
 /// ```
@@ -61,7 +60,7 @@ pub struct StoreObject<O: Copy, S: Shape> {
 /// ```rust
 /// use flat_spatial::ShapeGrid;
 ///
-/// let mut g: ShapeGrid<i32> = ShapeGrid::new(10); // Creates a new grid with a cell width of 10 with an integer as extra data
+/// let mut g = ShapeGrid::new(10); // Creates a new grid with a cell width of 10 with an integer as extra data
 /// let a = g.insert([0.0, 0.0], 0); // Inserts a new element with data: 0
 ///
 /// {
@@ -82,12 +81,12 @@ pub struct StoreObject<O: Copy, S: Shape> {
 /// assert_eq!(g.get(a), None); // But that a doesn't exist anymore
 /// ```
 #[derive(Clone)]
-pub struct ShapeGrid<O: Copy, S: Shape = AABB, ST: Storage = SparseStorage> {
+pub struct ShapeGrid<O: Copy, S: Shape, ST: Storage<ShapeGridCell> = SparseStorage<ShapeGridCell>> {
     storage: ST,
     objects: ShapeGridObjects<O, S>,
 }
 
-impl<S: Shape, ST: Storage, O: Copy> ShapeGrid<O, S, ST> {
+impl<S: Shape, ST: Storage<ShapeGridCell>, O: Copy> ShapeGrid<O, S, ST> {
     /// Creates an empty grid.   
     /// The cell size should be about the same magnitude as your queries size.
     pub fn new(cell_size: i32) -> Self {
@@ -106,29 +105,16 @@ impl<S: Shape, ST: Storage, O: Copy> ShapeGrid<O, S, ST> {
         }
     }
 
-    fn cell_ids(storage: &mut ST, shape: &S) -> impl Iterator<Item = ST::IdxIter> {
+    fn cells_apply(storage: &mut ST, shape: &S, f: impl Fn(&mut ShapeGridCell)) {
         let bbox = shape.bbox();
-        let ll = storage.cell_id(bbox.ll);
-        let ur = storage.cell_id(bbox.ur);
-        storage
-            .cell_range(ll, ur)
-            .filter(|id| shape.intersects(storage.cell_aabb(id)))
-    }
-
-    fn cell_mut<'a>(
-        storage: &'a mut ST,
-        objects: &mut ShapeGridObjects<O, ST::Idx>,
-        pos: Point2<f32>,
-    ) -> (ST::Idx, &'a mut ShapeGridCell) {
-        storage.cell_mut(pos, move |storage| {
-            storage.modify(move |cell| cell.objs.clear());
-
-            for (handle, obj) in objects.iter_mut() {
-                for id in cell_ids(storage, &obj.shape) {
-                    storage.cell_mut_unchecked(id).objs.push((handle, obj.pos));
-                }
+        let ll = storage.cell_mut(bbox.ll, |_| {}).0;
+        let ur = storage.cell_mut(bbox.ur, |_| {}).0;
+        for id in storage.cell_range(ll, ur) {
+            if !shape.intersects(storage.cell_aabb(id)) {
+                continue;
             }
-        })
+            f(storage.cell_mut_unchecked(id))
+        }
     }
 
     /// Inserts a new object with a position and an associated object
@@ -137,25 +123,19 @@ impl<S: Shape, ST: Storage, O: Copy> ShapeGrid<O, S, ST> {
     /// # Example
     /// ```rust
     /// use flat_spatial::ShapeGrid;
-    /// let mut g: ShapeGrid<()> = ShapeGrid::new(10);
+    /// let mut g = ShapeGrid::new(10);
     /// let h = g.insert([5.0, 3.0], ());
     /// ```
-    pub fn insert(&mut self, pos: impl Into<Point2<f32>>, obj: O) -> ShapeGridHandle {
-        let pos = pos.into();
-
+    pub fn insert(&mut self, shape: S, obj: O) -> ShapeGridHandle {
         let Self {
             storage, objects, ..
         } = self;
 
-        let (cell_id, cell) = Self::cell_mut(storage, objects, pos);
-        let handle = objects.insert(StoreObject {
-            obj,
-            state: ObjectState::Unchanged,
-            pos,
-            cell_id,
+        let h = objects.insert(StoreObject { obj, shape });
+        Self::cells_apply(storage, &shape, |cell| {
+            cell.objs.push(h);
         });
-        cell.objs.push((handle, pos));
-        handle
+        h
     }
 
     /// Lazily sets the position of an object (if it is not marked for deletion).
@@ -164,29 +144,29 @@ impl<S: Shape, ST: Storage, O: Copy> ShapeGrid<O, S, ST> {
     /// # Example
     /// ```rust
     /// use flat_spatial::ShapeGrid;
-    /// let mut g: ShapeGrid<()> = ShapeGrid::new(10);
+    /// let mut g = ShapeGrid::new(10);
     /// let h = g.insert([5.0, 3.0], ());
     /// g.set_position(h, [3.0, 3.0]);
     /// ```
-    pub fn set_position(&mut self, handle: ShapeGridHandle, pos: impl Into<Point2<f32>>) {
-        let pos = pos.into();
-
+    pub fn set_shape(&mut self, handle: ShapeGridHandle, shape: S) {
         let obj = self
             .objects
             .get_mut(handle)
             .expect("Object not in grid anymore");
-        obj.pos = pos;
-        if obj.state != ObjectState::Removed {
-            let target_id = self.storage.cell_id(pos);
 
-            obj.state = if target_id == obj.cell_id {
-                ObjectState::NewPos
-            } else {
-                ObjectState::Relocate
+        let storage = &mut self.storage;
+
+        Self::cells_apply(storage, &obj.shape, |cell| {
+            let p = match cell.objs.iter().position(|x| *x == handle) {
+                Some(x) => x,
+                None => return,
             };
-        }
+            cell.objs.swap_remove(p);
+        });
 
-        self.storage.cell_mut_unchecked(obj.cell_id).dirty = true;
+        Self::cells_apply(storage, &shape, |cell| cell.objs.push(handle));
+
+        obj.shape = shape;
     }
 
     /// Lazily removes an object from the grid.
@@ -195,50 +175,24 @@ impl<S: Shape, ST: Storage, O: Copy> ShapeGrid<O, S, ST> {
     /// # Example
     /// ```rust
     /// use flat_spatial::ShapeGrid;
-    /// let mut g: ShapeGrid<()> = ShapeGrid::new(10);
+    /// let mut g = ShapeGrid::new(10);
     /// let h = g.insert([5.0, 3.0], ());
     /// g.remove(h);
     /// ```
     pub fn remove(&mut self, handle: ShapeGridHandle) {
         let st = self
             .objects
-            .get_mut(handle)
+            .remove(handle)
             .expect("Object not in grid anymore");
 
-        st.state = ObjectState::Removed;
-        self.storage.cell_mut_unchecked(st.cell_id).dirty = true;
-    }
-
-    /// Maintains the world, updating all the positions (and moving them to corresponding cells)
-    /// and removing necessary objects and empty cells.
-    /// Runs in linear time O(N) where N is the number of objects.
-    /// # Example
-    /// ```rust
-    /// use flat_spatial::ShapeGrid;
-    /// let mut g: ShapeGrid<()> = ShapeGrid::new(10);
-    /// let h = g.insert([5.0, 3.0], ());
-    /// g.remove(h);
-    ///
-    /// assert!(g.get(h).is_some());
-    /// g.maintain();
-    /// assert!(g.get(h).is_none());
-    /// ```
-    pub fn maintain(&mut self) {
-        let Self {
-            storage,
-            objects,
-            to_relocate,
-            ..
-        } = self;
-
-        storage.modify(|cell| cell.maintain(objects, to_relocate));
-
-        for (handle, pos) in to_relocate.drain(..) {
-            Self::cell_mut(storage, objects, pos)
-                .1
-                .objs
-                .push((handle, pos));
-        }
+        let storage = &mut self.storage;
+        Self::cells_apply(storage, &st.shape, |cell| {
+            let p = match cell.objs.iter().position(|x| *x == handle) {
+                Some(x) => x,
+                None => return,
+            };
+            cell.objs.swap_remove(p);
+        });
     }
 
     /// Iterate over all handles
@@ -251,12 +205,12 @@ impl<S: Shape, ST: Storage, O: Copy> ShapeGrid<O, S, ST> {
     /// # Example
     /// ```rust
     /// use flat_spatial::ShapeGrid;
-    /// let mut g: ShapeGrid<i32> = ShapeGrid::new(10);
+    /// let mut g = ShapeGrid::new(10);
     /// let h = g.insert([5.0, 3.0], 42);
     /// assert_eq!(g.get(h), Some(([5.0, 3.0].into(), &42)));
     /// ```
-    pub fn get(&self, id: ShapeGridHandle) -> Option<(Point2<f32>, &O)> {
-        self.objects.get(id).map(|x| (x.pos, &x.obj))
+    pub fn get(&self, id: ShapeGridHandle) -> Option<(&S, &O)> {
+        self.objects.get(id).map(|x| (&x.shape, &x.obj))
     }
 
     /// Returns a mutable reference to the associated object and its position, using the handle.  
@@ -264,80 +218,18 @@ impl<S: Shape, ST: Storage, O: Copy> ShapeGrid<O, S, ST> {
     /// # Example
     /// ```rust
     /// use flat_spatial::ShapeGrid;
-    /// let mut g: ShapeGrid<i32> = ShapeGrid::new(10);
+    /// let mut g = ShapeGrid::new(10);
     /// let h = g.insert([5.0, 3.0], 42);
     /// *g.get_mut(h).unwrap().1 = 56;
     /// assert_eq!(g.get(h).unwrap().1, &56);
     /// ```    
-    pub fn get_mut(&mut self, id: ShapeGridHandle) -> Option<(Point2<f32>, &mut O)> {
-        self.objects.get_mut(id).map(|x| (x.pos, &mut x.obj))
+    pub fn get_mut(&mut self, id: ShapeGridHandle) -> Option<(&S, &mut O)> {
+        self.objects.get_mut(id).map(|x| (&x.shape, &mut x.obj))
     }
 
     /// The underlying storage
     pub fn storage(&self) -> &ST {
         &self.storage
-    }
-
-    /// Queries for all objects around a position within a certain radius.
-    /// Try to keep the radius asked and the cell size of similar magnitude for better performance.
-    ///
-    /// # Example
-    /// ```rust
-    /// use flat_spatial::ShapeGrid;
-    ///
-    /// let mut g: ShapeGrid<()> = ShapeGrid::new(10);
-    /// let a = g.insert([0.0, 0.0], ());
-    ///
-    /// let around: Vec<_> = g.query_around([2.0, 2.0], 5.0).map(|(id, _pos)| id).collect();
-    ///
-    /// assert_eq!(vec![a], around);
-    /// ```
-    pub fn query_around(
-        &self,
-        pos: impl Into<Point2<f32>>,
-        radius: f32,
-    ) -> impl Iterator<Item = CellObject> + '_ {
-        let pos = pos.into();
-
-        let ll = [pos.x - radius, pos.y - radius].into(); // lower left
-        let ur = [pos.x + radius, pos.y + radius].into(); // upper right
-
-        let radius2 = radius * radius;
-        self.query_raw(ll, ur).filter(move |(_, pos_obj)| {
-            let x = pos_obj.x - pos.x;
-            let y = pos_obj.y - pos.y;
-            x * x + y * y < radius2
-        })
-    }
-
-    /// Queries for all objects in an aabb (aka a rect).
-    /// Try to keep the rect's width/height of similar magnitudes to the cell size for better performance.
-    ///
-    /// # Example
-    /// ```rust
-    /// use flat_spatial::ShapeGrid;
-    ///
-    /// let mut g: ShapeGrid<()> = ShapeGrid::new(10);
-    /// let a = g.insert([0.0, 0.0], ());
-    ///
-    /// let around: Vec<_> = g.query_aabb([-1.0, -1.0], [1.0, 1.0]).map(|(id, _pos)| id).collect();
-    ///
-    /// assert_eq!(vec![a], around);
-    /// ```
-    pub fn query_aabb(
-        &self,
-        aa: impl Into<Point2<f32>>,
-        bb: impl Into<Point2<f32>>,
-    ) -> impl Iterator<Item = CellObject> + '_ {
-        let aa = aa.into();
-        let bb = bb.into();
-
-        let ll = [aa.x.min(bb.x), aa.y.min(bb.y)].into(); // lower left
-        let ur = [aa.x.max(bb.x), aa.y.max(bb.y)].into(); // upper right
-
-        self.query_raw(ll, ur).filter(move |(_, pos_obj)| {
-            (ll.x..=ur.x).contains(&pos_obj.x) && (ll.y..=ur.y).contains(&pos_obj.y)
-        })
     }
 
     /// Queries for all objects in the cells intersecting an axis-aligned rectangle defined by lower left (ll) and upper right (ur)
@@ -347,7 +239,7 @@ impl<S: Shape, ST: Storage, O: Copy> ShapeGrid<O, S, ST> {
     /// ```rust
     /// use flat_spatial::ShapeGrid;
     ///
-    /// let mut g: ShapeGrid<()> = ShapeGrid::new(10);
+    /// let mut g = ShapeGrid::new(10);
     /// let a = g.insert([0.0, 0.0], ());
     /// let b = g.insert([5.0, 5.0], ());
     ///
@@ -355,40 +247,40 @@ impl<S: Shape, ST: Storage, O: Copy> ShapeGrid<O, S, ST> {
     ///
     /// assert_eq!(vec![a, b], around);
     /// ```
-    pub fn query_raw(
+    pub fn query<QS: Shape + Intersect<S> + 'static>(
         &self,
-        ll: Point2<f32>,
-        ur: Point2<f32>,
-    ) -> impl Iterator<Item = CellObject> + '_ {
-        let ll_id = self.storage.cell_id(ll);
-        let ur_id = self.storage.cell_id(ur);
-
-        self.storage
-            .cell_range(ll_id, ur_id)
-            .flat_map(move |id| self.storage.cell(id))
-            .flat_map(|x| x.objs.iter().copied())
+        shape: QS,
+    ) -> impl Iterator<Item = (ShapeGridHandle, &S)> + '_ {
+        self.query_broad(shape)
+            .map(move |h| (h, &self.objects[h].shape))
+            .filter(move |(_, x)| shape.intersects(**x))
     }
 
-    /// Allows to look directly at what's in a cell covering a specific position.
+    /// Queries for all objects in the cells intersecting an axis-aligned rectangle defined by lower left (ll) and upper right (ur)
+    /// Try to keep the rect's width/height of similar magnitudes to the cell size for better performance.
     ///
-    /// # Example
+    /// # Exampley
     /// ```rust
     /// use flat_spatial::ShapeGrid;
     ///
-    /// let mut g: ShapeGrid<()> = ShapeGrid::new(10);
-    /// let a = g.insert([2.0, 2.0], ());
+    /// let mut g = ShapeGrid::new(10);
+    /// let a = g.insert([0.0, 0.0], ());
+    /// let b = g.insert([5.0, 5.0], ());
     ///
-    /// let around = g.get_cell([1.0, 1.0]).collect::<Vec<_>>();
+    /// let around: Vec<_> = g.query_raw([-1.0, -1.0].into(), [1.0, 1.0].into()).map(|(id, _pos)| id).collect();
     ///
-    /// assert_eq!(vec![(a, [2.0, 2.0].into())], around);
+    /// assert_eq!(vec![a, b], around);
     /// ```
-    pub fn get_cell(
-        &mut self,
-        pos: impl Into<mint::Point2<f32>>,
-    ) -> impl Iterator<Item = CellObject> + '_ {
-        self.storage
-            .cell(self.storage.cell_id(pos.into()))
-            .into_iter()
+    pub fn query_broad<QS: Shape>(&self, shape: QS) -> impl Iterator<Item = ShapeGridHandle> + '_ {
+        let bbox = shape.bbox();
+
+        let ll_id = self.storage.cell_id(bbox.ll);
+        let ur_id = self.storage.cell_id(bbox.ur);
+
+        let storage = &self.storage;
+        storage
+            .cell_range(ll_id, ur_id)
+            .flat_map(move |id| storage.cell(id))
             .flat_map(|x| x.objs.iter().copied())
     }
 
@@ -405,13 +297,30 @@ impl<S: Shape, ST: Storage, O: Copy> ShapeGrid<O, S, ST> {
     }
 }
 
+impl<S: Shape, ST: Storage<ShapeGridCell>, O: Copy> ShapeGrid<O, S, ST>
+where
+    Circle: Intersect<S>,
+{
+    pub fn query_around(
+        &self,
+        pos: impl Into<Point2<f32>>,
+        radius: f32,
+    ) -> impl Iterator<Item = (ShapeGridHandle, &S)> + '_ {
+        self.query(Circle {
+            center: pos.into(),
+            radius,
+        })
+    }
+}
+
 #[cfg(test)]
 mod tests {
-    use super::ShapeGrid;
+    use crate::shape::AABB;
+    use crate::DenseShapeGrid;
 
     #[test]
     fn test_small_query() {
-        let mut g: ShapeGrid<()> = ShapeGrid::new(10);
+        let mut g: DenseShapeGrid<(), [f32; 2]> = DenseShapeGrid::new(10);
         let a = g.insert([5.0, 0.0], ());
         let b = g.insert([11.0, 0.0], ());
         let c = g.insert([5.0, 8.0], ());
@@ -431,7 +340,7 @@ mod tests {
 
     #[test]
     fn test_big_query_around() {
-        let mut g: ShapeGrid<()> = ShapeGrid::new(10);
+        let mut g: DenseShapeGrid<(), [f32; 2]> = DenseShapeGrid::new(10);
 
         for i in 0..100 {
             g.insert([i as f32, 0.0], ());
@@ -443,14 +352,14 @@ mod tests {
 
     #[test]
     fn test_big_query_rect() {
-        let mut g: ShapeGrid<()> = ShapeGrid::new(10);
+        let mut g: DenseShapeGrid<(), [f32; 2]> = DenseShapeGrid::new(10);
 
         for i in 0..100 {
             g.insert([i as f32, 0.0], ());
         }
 
         let q: Vec<_> = g
-            .query_aabb([5.5, 1.0], [15.5, -1.0])
+            .query(AABB::new([5.5, 1.0].into(), [15.5, -1.0].into()))
             .map(|x| x.0)
             .collect();
         assert_eq!(q.len(), 10);
@@ -458,7 +367,7 @@ mod tests {
 
     #[test]
     fn test_distance_test() {
-        let mut g: ShapeGrid<()> = ShapeGrid::new(10);
+        let mut g: DenseShapeGrid<(), [f32; 2]> = DenseShapeGrid::new(10);
         let a = g.insert([3.0, 4.0], ());
 
         let far: Vec<_> = g.query_around([0.0, 0.0], 5.1).map(|x| x.0).collect();
@@ -470,14 +379,13 @@ mod tests {
 
     #[test]
     fn test_change_position() {
-        let mut g: ShapeGrid<()> = ShapeGrid::new(10);
+        let mut g: DenseShapeGrid<(), [f32; 2]> = DenseShapeGrid::new(10);
         let a = g.insert([0.0, 0.0], ());
 
         let before: Vec<_> = g.query_around([0.0, 0.0], 5.0).map(|x| x.0).collect();
         assert_eq!(before, vec![a]);
 
-        g.set_position(a, [30.0, 30.0]);
-        g.maintain();
+        g.set_shape(a, [30.0, 30.0]);
 
         let before: Vec<_> = g.query_around([0.0, 0.0], 5.0).map(|x| x.0).collect();
         assert_eq!(before, vec![]);
@@ -488,7 +396,7 @@ mod tests {
 
     #[test]
     fn test_remove() {
-        let mut g: ShapeGrid<()> = ShapeGrid::new(10);
+        let mut g: DenseShapeGrid<(), [f32; 2]> = DenseShapeGrid::new(10);
         let a = g.insert([0.0, 0.0], ());
 
         let before: Vec<_> = g.query_around([0.0, 0.0], 5.0).map(|x| x.0).collect();
@@ -496,7 +404,6 @@ mod tests {
 
         g.remove(a);
         let b = g.insert([0.0, 0.0], ());
-        g.maintain();
 
         assert_eq!(g.handles().collect::<Vec<_>>(), vec![b]);
 
@@ -506,7 +413,7 @@ mod tests {
 
     #[test]
     fn test_resize() {
-        let mut g: ShapeGrid<()> = ShapeGrid::new(10);
+        let mut g: DenseShapeGrid<(), [f32; 2]> = DenseShapeGrid::new(10);
         let a = g.insert([-1000.0, 0.0], ());
 
         let q: Vec<_> = g.query_around([-1000.0, 0.0], 5.0).map(|x| x.0).collect();
@@ -521,11 +428,12 @@ mod tests {
 
 #[cfg(test)]
 mod testssparse {
+    use crate::shape::AABB;
     use crate::SparseShapeGrid;
 
     #[test]
     fn test_small_query() {
-        let mut g: SparseShapeGrid<()> = SparseShapeGrid::new(10);
+        let mut g: SparseShapeGrid<(), [f32; 2]> = SparseShapeGrid::new(10);
         let a = g.insert([5.0, 0.0], ());
         let b = g.insert([11.0, 0.0], ());
         let c = g.insert([5.0, 8.0], ());
@@ -545,7 +453,7 @@ mod testssparse {
 
     #[test]
     fn test_big_query_around() {
-        let mut g: SparseShapeGrid<()> = SparseShapeGrid::new(10);
+        let mut g: SparseShapeGrid<(), [f32; 2]> = SparseShapeGrid::new(10);
 
         for i in 0..100 {
             g.insert([i as f32, 0.0], ());
@@ -557,14 +465,14 @@ mod testssparse {
 
     #[test]
     fn test_big_query_rect() {
-        let mut g: SparseShapeGrid<()> = SparseShapeGrid::new(10);
+        let mut g: SparseShapeGrid<(), [f32; 2]> = SparseShapeGrid::new(10);
 
         for i in 0..100 {
             g.insert([i as f32, 0.0], ());
         }
 
         let q: Vec<_> = g
-            .query_aabb([5.5, 1.0], [15.5, -1.0])
+            .query(AABB::new([5.5, 1.0].into(), [15.5, -1.0].into()))
             .map(|x| x.0)
             .collect();
         assert_eq!(q.len(), 10);
@@ -572,7 +480,7 @@ mod testssparse {
 
     #[test]
     fn test_distance_test() {
-        let mut g: SparseShapeGrid<()> = SparseShapeGrid::new(10);
+        let mut g: SparseShapeGrid<(), [f32; 2]> = SparseShapeGrid::new(10);
         let a = g.insert([3.0, 4.0], ());
 
         let far: Vec<_> = g.query_around([0.0, 0.0], 5.1).map(|x| x.0).collect();
@@ -584,14 +492,13 @@ mod testssparse {
 
     #[test]
     fn test_change_position() {
-        let mut g: SparseShapeGrid<()> = SparseShapeGrid::new(10);
+        let mut g: SparseShapeGrid<(), [f32; 2]> = SparseShapeGrid::new(10);
         let a = g.insert([0.0, 0.0], ());
 
         let before: Vec<_> = g.query_around([0.0, 0.0], 5.0).map(|x| x.0).collect();
         assert_eq!(before, vec![a]);
 
-        g.set_position(a, [30.0, 30.0]);
-        g.maintain();
+        g.set_shape(a, [30.0, 30.0]);
 
         let before: Vec<_> = g.query_around([0.0, 0.0], 5.0).map(|x| x.0).collect();
         assert_eq!(before, vec![]);
@@ -602,7 +509,7 @@ mod testssparse {
 
     #[test]
     fn test_remove() {
-        let mut g: SparseShapeGrid<()> = SparseShapeGrid::new(10);
+        let mut g: SparseShapeGrid<(), [f32; 2]> = SparseShapeGrid::new(10);
         let a = g.insert([0.0, 0.0], ());
 
         let before: Vec<_> = g.query_around([0.0, 0.0], 5.0).map(|x| x.0).collect();
@@ -610,7 +517,6 @@ mod testssparse {
 
         g.remove(a);
         let b = g.insert([0.0, 0.0], ());
-        g.maintain();
 
         assert_eq!(g.handles().collect::<Vec<_>>(), vec![b]);
 
@@ -620,7 +526,7 @@ mod testssparse {
 
     #[test]
     fn test_resize() {
-        let mut g: SparseShapeGrid<()> = SparseShapeGrid::new(10);
+        let mut g: SparseShapeGrid<(), [f32; 2]> = SparseShapeGrid::new(10);
         let a = g.insert([-1000.0, 0.0], ());
 
         let q: Vec<_> = g.query_around([-1000.0, 0.0], 5.0).map(|x| x.0).collect();
