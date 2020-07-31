@@ -334,7 +334,10 @@ impl<T: Default> Storage<T> for SparseStorage<T> {
     }
 
     fn cell_id(&self, pos: Point2<f32>) -> Self::Idx {
-        (pos.x as i32 / self.cell_size, pos.y as i32 / self.cell_size)
+        (
+            pos.x as i32 / self.cell_size - if pos.x < 0.0 { 1 } else { 0 },
+            pos.y as i32 / self.cell_size - if pos.y < 0.0 { 1 } else { 0 },
+        )
     }
 
     fn cell_aabb(&self, id: Self::Idx) -> AABB {

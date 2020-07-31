@@ -4,6 +4,7 @@ use crate::storage::{SparseStorage, Storage};
 use mint::Point2;
 use slotmap::new_key_type;
 use slotmap::SlotMap;
+use std::collections::HashSet;
 
 pub type ShapeGridObjects<O, S> = SlotMap<ShapeGridHandle, StoreObject<O, S>>;
 
@@ -324,11 +325,17 @@ impl<S: Shape, ST: Storage<ShapeGridCell>, O: Copy> ShapeGrid<O, S, ST> {
         let ll_id = storage.cell_id(bbox.ll);
         let ur_id = storage.cell_id(bbox.ur);
 
-        storage
+        let iter = storage
             .cell_range(ll_id, ur_id)
             .filter(move |&id| shape.intersects(storage.cell_aabb(id)))
             .flat_map(move |id| storage.cell(id))
-            .flat_map(|x| x.objs.iter().copied())
+            .flat_map(|x| x.objs.iter().copied());
+
+        if ll_id == ur_id {
+            QueryIter::Simple(iter)
+        } else {
+            QueryIter::Dedup(HashSet::with_capacity(5), iter)
+        }
     }
 
     /// Returns the number of objects currently available
@@ -358,6 +365,27 @@ where
             center: pos.into(),
             radius,
         })
+    }
+}
+
+enum QueryIter<T: Iterator<Item = ShapeGridHandle>> {
+    Simple(T),
+    Dedup(HashSet<ShapeGridHandle>, T),
+}
+
+impl<T: Iterator<Item = ShapeGridHandle>> Iterator for QueryIter<T> {
+    type Item = T::Item;
+
+    fn next(&mut self) -> Option<Self::Item> {
+        match self {
+            QueryIter::Simple(x) => x.next(),
+            QueryIter::Dedup(seen, x) => loop {
+                let v = x.next()?;
+                if seen.insert(v) {
+                    return Some(v);
+                }
+            },
+        }
     }
 }
 
@@ -540,6 +568,70 @@ mod testssparse {
     use crate::shape::{Circle, AABB};
     use crate::storage::Storage;
     use crate::SparseShapeGrid;
+    use mint::Point2;
+
+    #[test]
+    fn test_rand() {
+        let mut g: SparseShapeGrid<(), AABB> = SparseShapeGrid::new(50);
+
+        fastrand::seed(0);
+        for _ in 0..1000 {
+            let aabb = AABB::new(
+                Point2 {
+                    x: fastrand::f32() * 1000.0 - 500.0,
+                    y: fastrand::f32() * 1000.0 - 500.0,
+                },
+                Point2 {
+                    x: fastrand::f32() * 1000.0 - 500.0,
+                    y: fastrand::f32() * 1000.0 - 500.0,
+                },
+            );
+
+            dbg!(g.storage.cell_aabb(g.storage.cell_id(aabb.ll)));
+
+            dbg!(aabb);
+
+            let h = g.insert(aabb, ());
+            assert_eq!(
+                g.query_around(aabb.ll, 0.001)
+                    .map(|(a, _, _)| a)
+                    .collect::<Vec<_>>(),
+                vec![h]
+            );
+            assert_eq!(
+                g.query_around(aabb.ur, 0.001)
+                    .map(|(a, _, _)| a)
+                    .collect::<Vec<_>>(),
+                vec![h]
+            );
+
+            assert_eq!(
+                g.storage()
+                    .cell(g.storage.cell_id(aabb.ll))
+                    .unwrap()
+                    .objs
+                    .clone(),
+                vec![h]
+            );
+            assert_eq!(
+                g.storage()
+                    .cell(g.storage.cell_id(aabb.ur))
+                    .unwrap()
+                    .objs
+                    .clone(),
+                vec![h]
+            );
+            assert_eq!(
+                g.storage()
+                    .cell(g.storage.cell_id(aabb.ur))
+                    .unwrap()
+                    .objs
+                    .clone(),
+                vec![h]
+            );
+            g.remove(h);
+        }
+    }
 
     #[test]
     fn test_big_query_around_vert() {
