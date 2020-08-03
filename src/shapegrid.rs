@@ -118,7 +118,7 @@ impl<S: Shape, ST: Storage<ShapeGridCell>, O: Copy> ShapeGrid<O, S, ST> {
         }
     }
 
-    fn cells_apply(storage: &mut ST, shape: &S, f: impl Fn(&mut ShapeGridCell)) {
+    fn cells_apply(storage: &mut ST, shape: &S, f: impl Fn(&mut ShapeGridCell, bool)) {
         let bbox = shape.bbox();
         let ll = storage.cell_mut(bbox.ll, |_| {}).0;
         let ur = storage.cell_mut(bbox.ur, |_| {}).0;
@@ -126,7 +126,7 @@ impl<S: Shape, ST: Storage<ShapeGridCell>, O: Copy> ShapeGrid<O, S, ST> {
             if !shape.intersects(storage.cell_aabb(id)) {
                 continue;
             }
-            f(storage.cell_mut_unchecked(id))
+            f(storage.cell_mut_unchecked(id), ll==ur)
         }
     }
 
@@ -148,8 +148,8 @@ impl<S: Shape, ST: Storage<ShapeGridCell>, O: Copy> ShapeGrid<O, S, ST> {
         } = self;
 
         let h = objects.insert(StoreObject { obj, shape });
-        Self::cells_apply(storage, &shape, |cell| {
-            cell.objs.push(h);
+        Self::cells_apply(storage, &shape, |cell, sing_cell| {
+            cell.objs.push((h, sing_cell));
         });
         h
     }
@@ -178,15 +178,15 @@ impl<S: Shape, ST: Storage<ShapeGridCell>, O: Copy> ShapeGrid<O, S, ST> {
 
         let storage = &mut self.storage;
 
-        Self::cells_apply(storage, &obj.shape, |cell| {
-            let p = match cell.objs.iter().position(|x| *x == handle) {
+        Self::cells_apply(storage, &obj.shape, |cell, _| {
+            let p = match cell.objs.iter().position(|(x, _)| *x == handle) {
                 Some(x) => x,
                 None => return,
             };
             cell.objs.swap_remove(p);
         });
 
-        Self::cells_apply(storage, &shape, |cell| cell.objs.push(handle));
+        Self::cells_apply(storage, &shape, |cell, sing_cell| cell.objs.push((handle, sing_cell)));
 
         obj.shape = shape;
     }
@@ -210,8 +210,8 @@ impl<S: Shape, ST: Storage<ShapeGridCell>, O: Copy> ShapeGrid<O, S, ST> {
             .expect("Object not in grid anymore");
 
         let storage = &mut self.storage;
-        Self::cells_apply(storage, &st.shape, |cell| {
-            let p = match cell.objs.iter().position(|x| *x == handle) {
+        Self::cells_apply(storage, &st.shape, |cell, _| {
+            let p = match cell.objs.iter().position(|(x, _)| *x == handle) {
                 Some(x) => x,
                 None => return,
             };
@@ -368,19 +368,22 @@ where
     }
 }
 
-enum QueryIter<T: Iterator<Item = ShapeGridHandle>> {
+enum QueryIter<T: Iterator<Item = (ShapeGridHandle, bool)>> {
     Simple(T),
     Dedup(HashSet<ShapeGridHandle>, T),
 }
 
-impl<T: Iterator<Item = ShapeGridHandle>> Iterator for QueryIter<T> {
-    type Item = T::Item;
+impl<T: Iterator<Item = (ShapeGridHandle, bool)>> Iterator for QueryIter<T> {
+    type Item = ShapeGridHandle;
 
     fn next(&mut self) -> Option<Self::Item> {
         match self {
-            QueryIter::Simple(x) => x.next(),
+            QueryIter::Simple(x) => x.next().map(|(x, _)| x),
             QueryIter::Dedup(seen, x) => loop {
-                let v = x.next()?;
+                let (v, sing_cell) = x.next()?;
+                if sing_cell {
+                    return Some(v);
+                }
                 if seen.insert(v) {
                     return Some(v);
                 }
@@ -602,31 +605,6 @@ mod testssparse {
                 g.query_around(aabb.ur, 0.001)
                     .map(|(a, _, _)| a)
                     .collect::<Vec<_>>(),
-                vec![h]
-            );
-
-            assert_eq!(
-                g.storage()
-                    .cell(g.storage.cell_id(aabb.ll))
-                    .unwrap()
-                    .objs
-                    .clone(),
-                vec![h]
-            );
-            assert_eq!(
-                g.storage()
-                    .cell(g.storage.cell_id(aabb.ur))
-                    .unwrap()
-                    .objs
-                    .clone(),
-                vec![h]
-            );
-            assert_eq!(
-                g.storage()
-                    .cell(g.storage.cell_id(aabb.ur))
-                    .unwrap()
-                    .objs
-                    .clone(),
                 vec![h]
             );
             g.remove(h);

@@ -13,7 +13,7 @@ pub struct GridCell {
 
 #[derive(Default, Clone)]
 pub struct ShapeGridCell {
-    pub objs: Vec<ShapeGridHandle>,
+    pub objs: Vec<(ShapeGridHandle, bool)>,
 }
 
 impl GridCell {
