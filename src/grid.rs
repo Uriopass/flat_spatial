@@ -1,10 +1,10 @@
 use crate::cell::{CellObject, GridCell};
-use crate::storage::{SparseStorage, Storage};
+use crate::storage::{cell_range, CellIdx, SparseStorage, Storage};
 use mint::Point2;
 use slotmap::new_key_type;
 use slotmap::SlotMap;
 
-pub type GridObjects<O, Idx> = SlotMap<GridHandle, StoreObject<O, Idx>>;
+pub type GridObjects<O> = SlotMap<GridHandle, StoreObject<O>>;
 
 new_key_type! {
     /// This handle is used to modify the associated object or to update its position.
@@ -13,22 +13,22 @@ new_key_type! {
 }
 
 /// State of an object, maintain() updates the internals of the grid and resets this to Unchanged
-#[derive(Clone, Copy)]
+#[derive(Clone, Copy, Debug)]
 pub enum ObjectState {
     Unchanged,
     NewPos(Point2<f32>),
-    Relocate(Point2<f32>),
+    Relocate(Point2<f32>, CellIdx),
     Removed,
 }
 
 /// The actual object stored in the store
 #[derive(Clone, Copy)]
-pub struct StoreObject<O: Copy, Idx: Copy> {
+pub struct StoreObject<O: Copy> {
     /// User-defined object to be associated with a value
     obj: O,
     pub state: ObjectState,
     pub pos: Point2<f32>,
-    pub cell_id: Idx,
+    pub cell_id: CellIdx,
 }
 
 /// Grid is a point-based spatial partitioning structure that uses a generic storage of cells which acts as a
@@ -97,7 +97,7 @@ pub struct StoreObject<O: Copy, Idx: Copy> {
 #[derive(Clone)]
 pub struct Grid<O: Copy, ST: Storage<GridCell> = SparseStorage<GridCell>> {
     storage: ST,
-    objects: GridObjects<O, ST::Idx>,
+    objects: GridObjects<O>,
     // Cache maintain vec to avoid allocating every time maintain is called
     to_relocate: Vec<CellObject>,
 }
@@ -119,18 +119,6 @@ impl<ST: Storage<GridCell>, O: Copy> Grid<O, ST> {
         }
     }
 
-    fn cell_mut<'a>(
-        storage: &'a mut ST,
-        objects: &mut GridObjects<O, ST::Idx>,
-        pos: Point2<f32>,
-    ) -> (ST::Idx, &'a mut GridCell) {
-        storage.cell_mut(pos, move |storage| {
-            for (_, obj) in objects.iter_mut() {
-                obj.cell_id = storage.cell_id(obj.pos);
-            }
-        })
-    }
-
     /// Inserts a new object with a position and an associated object
     /// Returns the unique and stable handle to be used with get_obj
     ///
@@ -147,7 +135,7 @@ impl<ST: Storage<GridCell>, O: Copy> Grid<O, ST> {
             storage, objects, ..
         } = self;
 
-        let (cell_id, cell) = Self::cell_mut(storage, objects, pos);
+        let (cell_id, cell) = storage.cell_mut(pos);
         let handle = objects.insert(StoreObject {
             obj,
             state: ObjectState::Unchanged,
@@ -177,11 +165,10 @@ impl<ST: Storage<GridCell>, O: Copy> Grid<O, ST> {
             .expect("Object not in grid anymore");
         if !matches!(obj.state, ObjectState::Removed) {
             let target_id = self.storage.cell_id(pos);
-
             obj.state = if target_id == obj.cell_id {
                 ObjectState::NewPos(pos)
             } else {
-                ObjectState::Relocate(pos)
+                ObjectState::Relocate(pos, target_id)
             };
         }
 
@@ -199,13 +186,13 @@ impl<ST: Storage<GridCell>, O: Copy> Grid<O, ST> {
     /// g.remove(h);
     /// ```
     pub fn remove(&mut self, handle: GridHandle) {
-        let st = self
+        let obj = self
             .objects
             .get_mut(handle)
             .expect("Object not in grid anymore");
 
-        st.state = ObjectState::Removed;
-        self.storage.cell_mut_unchecked(st.cell_id).dirty = true;
+        obj.state = ObjectState::Removed;
+        self.storage.cell_mut_unchecked(obj.cell_id).dirty = true;
     }
 
     /// Maintains the world, updating all the positions (and moving them to corresponding cells)
@@ -236,10 +223,7 @@ impl<ST: Storage<GridCell>, O: Copy> Grid<O, ST> {
         });
 
         for (handle, pos) in to_relocate.drain(..) {
-            Self::cell_mut(storage, objects, pos)
-                .1
-                .objs
-                .push((handle, pos));
+            storage.cell_mut(pos).1.objs.push((handle, pos));
         }
     }
 
@@ -370,8 +354,7 @@ impl<ST: Storage<GridCell>, O: Copy> Grid<O, ST> {
         let ll_id = self.storage.cell_id(ll);
         let ur_id = self.storage.cell_id(ur);
 
-        self.storage
-            .cell_range(ll_id, ur_id)
+        cell_range(ll_id, ur_id)
             .flat_map(move |id| self.storage.cell(id))
             .flat_map(|x| x.objs.iter().copied())
     }
@@ -414,11 +397,42 @@ impl<ST: Storage<GridCell>, O: Copy> Grid<O, ST> {
 
 #[cfg(test)]
 mod tests {
-    use super::Grid;
+    use crate::storage::DenseStorage;
+    use crate::DenseGrid;
+
+    #[test]
+    fn move_test() {
+        let mut g: DenseGrid<()> = DenseGrid::with_storage(DenseStorage::new_rect(10, 0, 0, 1, 1));
+
+        let h = g.insert([5.0, 5.0], ());
+
+        g.set_position(h, [-5.0, 5.0]);
+        g.maintain();
+
+        let h2 = g.insert([-5.0, 5.0], ());
+
+        assert_eq!(g.query_around([-5.0, 5.0], 0.1).count(), 2);
+
+        g.remove(h2);
+        g.maintain();
+
+        for _ in 0..=10000 {
+            let last = [
+                rand::random::<f32>() * 100.0 - 50.0,
+                rand::random::<f32>() * 100.0 - 50.0,
+            ];
+
+            g.set_position(h, last);
+            g.maintain();
+
+            assert_eq!(g.get(h).unwrap().0, last.into());
+            assert_eq!(g.query_around(last, 0.1).count(), 1);
+        }
+    }
 
     #[test]
     fn test_small_query() {
-        let mut g: Grid<()> = Grid::new(10);
+        let mut g: DenseGrid<()> = DenseGrid::new(10);
         let a = g.insert([5.0, 0.0], ());
         let b = g.insert([11.0, 0.0], ());
         let c = g.insert([5.0, 8.0], ());
@@ -438,7 +452,7 @@ mod tests {
 
     #[test]
     fn test_big_query_around() {
-        let mut g: Grid<()> = Grid::new(10);
+        let mut g: DenseGrid<()> = DenseGrid::new(10);
 
         for i in 0..100 {
             g.insert([i as f32, 0.0], ());
@@ -450,7 +464,7 @@ mod tests {
 
     #[test]
     fn test_big_query_around_vert() {
-        let mut g: Grid<()> = Grid::new(10);
+        let mut g: DenseGrid<()> = DenseGrid::new(10);
 
         for i in 0..100 {
             g.insert([0.0, i as f32], ());
@@ -462,7 +476,7 @@ mod tests {
 
     #[test]
     fn test_big_query_rect() {
-        let mut g: Grid<()> = Grid::new(10);
+        let mut g: DenseGrid<()> = DenseGrid::new(10);
 
         for i in 0..100 {
             g.insert([i as f32, 0.0], ());
@@ -477,7 +491,7 @@ mod tests {
 
     #[test]
     fn test_distance_test() {
-        let mut g: Grid<()> = Grid::new(10);
+        let mut g: DenseGrid<()> = DenseGrid::new(10);
         let a = g.insert([3.0, 4.0], ());
 
         let far: Vec<_> = g.query_around([0.0, 0.0], 5.1).map(|x| x.0).collect();
@@ -489,7 +503,7 @@ mod tests {
 
     #[test]
     fn test_very_far() {
-        let mut g: Grid<()> = Grid::new(10);
+        let mut g: DenseGrid<()> = DenseGrid::new(10);
         let a = g.insert([3.0, 4.0], ());
 
         let far: Vec<_> = g.query_around([0.0, 0.0], 5.1).map(|x| x.0).collect();
@@ -498,7 +512,7 @@ mod tests {
 
     #[test]
     fn test_change_position() {
-        let mut g: Grid<()> = Grid::new(10);
+        let mut g: DenseGrid<()> = DenseGrid::new(10);
         let a = g.insert([0.0, 0.0], ());
 
         let before: Vec<_> = g.query_around([0.0, 0.0], 5.0).map(|x| x.0).collect();
@@ -516,7 +530,7 @@ mod tests {
 
     #[test]
     fn test_remove() {
-        let mut g: Grid<()> = Grid::new(10);
+        let mut g: DenseGrid<()> = DenseGrid::new(10);
         let a = g.insert([0.0, 0.0], ());
 
         let before: Vec<_> = g.query_around([0.0, 0.0], 5.0).map(|x| x.0).collect();
@@ -534,7 +548,7 @@ mod tests {
 
     #[test]
     fn test_resize() {
-        let mut g: Grid<()> = Grid::new(10);
+        let mut g: DenseGrid<()> = DenseGrid::new(10);
         let a = g.insert([-1000.0, 0.0], ());
 
         let q: Vec<_> = g.query_around([-1000.0, 0.0], 5.0).map(|x| x.0).collect();

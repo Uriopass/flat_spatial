@@ -17,9 +17,9 @@ pub struct ShapeGridCell {
 }
 
 impl GridCell {
-    pub fn maintain<T: Copy, U: Copy + Eq>(
+    pub fn maintain<T: Copy>(
         &mut self,
-        objects: &mut GridObjects<T, U>,
+        objects: &mut GridObjects<T>,
         to_relocate: &mut Vec<CellObject>,
     ) {
         if !self.dirty {
@@ -28,7 +28,6 @@ impl GridCell {
         self.dirty = false;
         self.objs.retain_mut(|(obj_id, obj_pos)| {
             let store_obj = &mut objects[*obj_id];
-
             match store_obj.state {
                 ObjectState::NewPos(pos) => {
                     store_obj.state = ObjectState::Unchanged;
@@ -36,9 +35,10 @@ impl GridCell {
                     *obj_pos = pos;
                     true
                 }
-                ObjectState::Relocate(pos) => {
+                ObjectState::Relocate(pos, target_id) => {
                     store_obj.state = ObjectState::Unchanged;
                     store_obj.pos = pos;
+                    store_obj.cell_id = target_id;
                     to_relocate.push((*obj_id, pos));
                     false
                 }

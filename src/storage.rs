@@ -2,26 +2,32 @@ use crate::shape::AABB;
 use mint::Point2;
 use std::collections::HashMap;
 
+pub type CellIdx = (i32, i32);
+
+pub fn cell_range((x1, y1): CellIdx, (x2, y2): CellIdx) -> impl Iterator<Item = CellIdx> {
+    XYRange {
+        x1,
+        x2: x2 + 1,
+        y2: y2 + 1,
+        x: x1,
+        y: y1,
+    }
+}
+
 /// The storage trait, implement this if you want to use a custom point storage for the Grid.
 pub trait Storage<T> {
-    type Idx: Copy + Eq;
-    type IdxIter: Iterator<Item = Self::Idx>;
-
     fn new(cell_size: i32) -> Self;
 
-    // f returns true if the cell is empty (which may lead to cleaning up)
     fn modify(&mut self, f: impl FnMut(&mut T) -> bool);
 
-    fn cell_mut<IC>(&mut self, pos: Point2<f32>, on_ids_changed: IC) -> (Self::Idx, &mut T)
-    where
-        IC: FnMut(&mut Self);
-    fn cell_mut_unchecked(&mut self, id: Self::Idx) -> &mut T;
-    fn cell(&self, id: Self::Idx) -> Option<&T>;
+    fn cell_mut(&mut self, pos: Point2<f32>) -> (CellIdx, &mut T);
 
-    fn cell_range(&self, ll: Self::Idx, ur: Self::Idx) -> Self::IdxIter;
-    fn cell_id(&self, p: Point2<f32>) -> Self::Idx;
+    fn cell_mut_unchecked(&mut self, id: CellIdx) -> &mut T;
+    fn cell(&self, id: CellIdx) -> Option<&T>;
 
-    fn cell_aabb(&self, id: Self::Idx) -> AABB;
+    fn cell_id(&self, p: Point2<f32>) -> CellIdx;
+
+    fn cell_aabb(&self, id: CellIdx) -> AABB;
 }
 
 /// DenseStorage stores cells in a Vec to be used for a Grid.
@@ -53,8 +59,8 @@ impl<T: Default> DenseStorage<T> {
             cell_size
         );
         Self {
-            start_x: x * cell_size,
-            start_y: y * cell_size,
+            start_x: x,
+            start_y: y,
             cell_size,
             width: w,
             height: h,
@@ -65,12 +71,13 @@ impl<T: Default> DenseStorage<T> {
     pub fn cells(&self) -> &Vec<T> {
         &self.cells
     }
+
+    fn pos(&self, (x, y): CellIdx) -> usize {
+        ((y - self.start_y) * self.width + (x - self.start_x)) as usize
+    }
 }
 
 impl<T: Default> Storage<T> for DenseStorage<T> {
-    type Idx = usize;
-    type IdxIter = DenseIter;
-
     fn new(cell_size: i32) -> Self {
         Self {
             cell_size,
@@ -88,17 +95,14 @@ impl<T: Default> Storage<T> for DenseStorage<T> {
         })
     }
 
-    fn cell_mut<IC>(&mut self, pos: Point2<f32>, mut on_ids_changed: IC) -> (Self::Idx, &mut T)
-    where
-        IC: FnMut(&mut Self),
-    {
+    fn cell_mut(&mut self, pos: Point2<f32>) -> (CellIdx, &mut T) {
         debug_assert!(pos.x.is_finite());
         debug_assert!(pos.y.is_finite());
 
         if self.width == 0 && self.height == 0 {
             // First allocation, change start_x and start_y to match pos
-            self.start_x = pos.x as i32 / self.cell_size * self.cell_size;
-            self.start_y = pos.y as i32 / self.cell_size * self.cell_size;
+            self.start_x = pos.x as i32 / self.cell_size;
+            self.start_y = pos.y as i32 / self.cell_size;
             self.width = 1;
             self.height = 1;
             self.cells = vec![T::default()];
@@ -113,12 +117,14 @@ impl<T: Default> Storage<T> for DenseStorage<T> {
         let x = pos.x as i32;
         let y = pos.y as i32;
 
-        let right = self.start_x + self.width as i32 * self.cell_size;
-        let up = self.start_y + self.height as i32 * self.cell_size;
+        let left = self.start_x * self.cell_size;
+        let down = self.start_y * self.cell_size;
+        let right = left + self.width * self.cell_size;
+        let up = down + self.height * self.cell_size;
 
-        if x <= self.start_x {
-            padleft = 1 + (self.start_x - x) / self.cell_size;
-            self.start_x -= self.cell_size * padleft;
+        if x <= left {
+            padleft = 1 + (left - x) / self.cell_size;
+            self.start_x -= padleft;
             self.width += padleft;
             reallocate = true;
         } else if x >= right {
@@ -127,9 +133,9 @@ impl<T: Default> Storage<T> for DenseStorage<T> {
             reallocate = true;
         }
 
-        if y <= self.start_y {
-            paddown = 1 + (self.start_y - y) / self.cell_size;
-            self.start_y -= self.cell_size * paddown;
+        if y <= down {
+            paddown = 1 + (down - y) / self.cell_size;
+            self.start_y -= paddown;
             self.height += paddown;
             reallocate = true;
             paddown = paddown;
@@ -166,49 +172,34 @@ impl<T: Default> Storage<T> for DenseStorage<T> {
             }
 
             self.cells = newvec;
-            on_ids_changed(self)
         }
 
         let id = self.cell_id(pos);
         (id, self.cell_mut_unchecked(id))
     }
 
-    fn cell_mut_unchecked(&mut self, id: Self::Idx) -> &mut T {
-        &mut self.cells[id]
+    fn cell_mut_unchecked(&mut self, id: CellIdx) -> &mut T {
+        let p = self.pos(id);
+        &mut self.cells[p]
     }
 
-    fn cell(&self, id: Self::Idx) -> Option<&T> {
-        self.cells.get(id)
+    fn cell(&self, id: CellIdx) -> Option<&T> {
+        self.cells.get(self.pos(id))
     }
 
-    fn cell_range(&self, ll: Self::Idx, ur: Self::Idx) -> Self::IdxIter {
-        let w = self.width as usize;
-        DenseIter {
-            ur,
-            diff: 1 + ur % w - ll % w,
-            width: w,
-            c: 0,
-            cur: ll,
-        }
+    fn cell_id(&self, pos: Point2<f32>) -> CellIdx {
+        (
+            pos.x as i32 / self.cell_size - if pos.x < 0.0 { 1 } else { 0 },
+            pos.y as i32 / self.cell_size - if pos.y < 0.0 { 1 } else { 0 },
+        )
     }
 
-    fn cell_id(&self, pos: Point2<f32>) -> Self::Idx {
-        (((pos.y as i32 - self.start_y) / self.cell_size)
-            .max(0)
-            .min(self.height - 1)
-            * self.width
-            + ((pos.x as i32 - self.start_x) / self.cell_size)
-                .max(0)
-                .min(self.width - 1)) as usize
-    }
-
-    fn cell_aabb(&self, id: Self::Idx) -> AABB {
-        let x = id as i32 % self.width;
-        let y = id as i32 / self.width;
+    fn cell_aabb(&self, id: CellIdx) -> AABB {
+        let (x, y) = id;
 
         let ll = Point2 {
-            x: (self.start_x + x * self.cell_size) as f32,
-            y: (self.start_y + y * self.cell_size) as f32,
+            x: (x * self.cell_size) as f32,
+            y: (y * self.cell_size) as f32,
         };
 
         let ur = Point2 {
@@ -220,97 +211,27 @@ impl<T: Default> Storage<T> for DenseStorage<T> {
     }
 }
 
-pub struct DenseIter {
-    ur: usize,
-    width: usize,
-    diff: usize,
-    c: usize,
-    cur: usize,
-}
-
-#[cfg(test)]
-mod tests {
-    use super::DenseIter;
-    use crate::cell::GridCell;
-    use crate::storage::{DenseStorage, Storage};
-    use mint::Point2;
-
-    #[test]
-    fn invalid_id_test() {
-        let s = DenseStorage::<GridCell>::new_rect(10, 0, 0, 1, 1);
-
-        assert_eq!(s.cell_id(Point2 { x: 15.0, y: 15.0 }), 0);
-        assert_eq!(s.cell_id(Point2 { x: 5.0, y: 15.0 }), 0);
-        assert_eq!(s.cell_id(Point2 { x: 15.0, y: 5.0 }), 0);
-        assert_eq!(s.cell_id(Point2 { x: 5.0, y: 5.0 }), 0);
-        assert_eq!(s.cell_id(Point2 { x: -15.0, y: 15.0 }), 0);
-        assert_eq!(s.cell_id(Point2 { x: 5.0, y: -15.0 }), 0);
-        assert_eq!(s.cell_id(Point2 { x: 15.0, y: -5.0 }), 0);
-        assert_eq!(s.cell_id(Point2 { x: -5.0, y: 5.0 }), 0);
-    }
-
-    #[test]
-    fn test_dense_iter_manual() {
-        let x = DenseIter {
-            ur: 8,
-            width: 5,
-            diff: 3,
-            c: 0,
-            cur: 1,
-        };
-
-        assert_eq!(x.collect::<Vec<_>>(), vec![1, 2, 3, 6, 7, 8])
-    }
-
-    #[test]
-    fn test_dense_iter() {
-        let s = DenseStorage::<GridCell>::new_rect(10, 0, 0, 5, 2);
-
-        assert_eq!(
-            s.cell_range(1, 8).collect::<Vec<_>>(),
-            vec![1, 2, 3, 6, 7, 8]
-        )
-    }
-}
-
-impl Iterator for DenseIter {
-    type Item = usize;
-
-    fn next(&mut self) -> Option<Self::Item> {
-        if self.cur > self.ur {
-            return None;
-        }
-
-        let v = self.cur;
-        self.c += 1;
-        self.cur += 1;
-        if self.c == self.diff {
-            self.c = 0;
-            self.cur += self.width - self.diff;
-        }
-        Some(v)
-    }
-}
-
 /// SparseStorage stores cells in a HashMap to be used in a Grid.
 /// It is Sparse because cells are eagerly allocated, and cleaned when they are empty.
 /// It implements the Storage trait.
 pub struct SparseStorage<T: Default> {
     cell_size: i32,
-    cells: HashMap<(i32, i32), T>,
+    cells: HashMap<CellIdx, T>,
 }
 
 impl<T: Default> SparseStorage<T> {
-    pub fn cells(&self) -> &HashMap<(i32, i32), T> {
+    pub fn cells(&self) -> &HashMap<CellIdx, T> {
         &self.cells
     }
 }
 
 impl<T: Default> Storage<T> for SparseStorage<T> {
-    type Idx = (i32, i32);
-    type IdxIter = XYRange;
-
     fn new(cell_size: i32) -> Self {
+        assert!(
+            cell_size > 0,
+            "Cell size ({}) cannot be less than or equal to zero",
+            cell_size
+        );
         Self {
             cell_size,
             cells: Default::default(),
@@ -321,43 +242,27 @@ impl<T: Default> Storage<T> for SparseStorage<T> {
         self.cells.retain(move |_, cell| !f(cell));
     }
 
-    // ids never change
-    fn cell_mut<IC>(&mut self, pos: Point2<f32>, _: IC) -> (Self::Idx, &mut T)
-    where
-        IC: FnMut(&mut Self),
-    {
+    fn cell_mut(&mut self, pos: Point2<f32>) -> (CellIdx, &mut T) {
         let id = self.cell_id(pos);
         (id, self.cells.entry(id).or_default())
     }
 
-    fn cell_mut_unchecked(&mut self, id: Self::Idx) -> &mut T {
+    fn cell_mut_unchecked(&mut self, id: CellIdx) -> &mut T {
         self.cells.entry(id).or_default()
     }
 
-    fn cell(&self, id: Self::Idx) -> Option<&T> {
+    fn cell(&self, id: CellIdx) -> Option<&T> {
         self.cells.get(&id)
     }
 
-    fn cell_range(&self, (x1, y1): Self::Idx, (x2, y2): Self::Idx) -> Self::IdxIter {
-        XYRange {
-            x1,
-            x2: x2 + 1,
-            y2: y2 + 1,
-            x: x1,
-            y: y1,
-        }
-    }
-
-    fn cell_id(&self, pos: Point2<f32>) -> Self::Idx {
+    fn cell_id(&self, pos: Point2<f32>) -> CellIdx {
         (
             pos.x as i32 / self.cell_size - if pos.x < 0.0 { 1 } else { 0 },
             pos.y as i32 / self.cell_size - if pos.y < 0.0 { 1 } else { 0 },
         )
     }
 
-    fn cell_aabb(&self, id: Self::Idx) -> AABB {
-        let (x, y) = id;
-
+    fn cell_aabb(&self, (x, y): CellIdx) -> AABB {
         let ll = Point2 {
             x: (x * self.cell_size) as f32,
             y: (y * self.cell_size) as f32,

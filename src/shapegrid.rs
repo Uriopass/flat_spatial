@@ -1,6 +1,6 @@
 use crate::cell::ShapeGridCell;
 use crate::shape::{Circle, Intersect, Shape};
-use crate::storage::{SparseStorage, Storage};
+use crate::storage::{cell_range, SparseStorage, Storage};
 use mint::Point2;
 use slotmap::new_key_type;
 use slotmap::SlotMap;
@@ -120,13 +120,13 @@ impl<S: Shape, ST: Storage<ShapeGridCell>, O: Copy> ShapeGrid<O, S, ST> {
 
     fn cells_apply(storage: &mut ST, shape: &S, f: impl Fn(&mut ShapeGridCell, bool)) {
         let bbox = shape.bbox();
-        let ll = storage.cell_mut(bbox.ll, |_| {}).0;
-        let ur = storage.cell_mut(bbox.ur, |_| {}).0;
-        for id in storage.cell_range(ll, ur) {
+        let ll = storage.cell_mut(bbox.ll).0;
+        let ur = storage.cell_mut(bbox.ur).0;
+        for id in cell_range(ll, ur) {
             if !shape.intersects(storage.cell_aabb(id)) {
                 continue;
             }
-            f(storage.cell_mut_unchecked(id), ll==ur)
+            f(storage.cell_mut_unchecked(id), ll == ur)
         }
     }
 
@@ -186,7 +186,9 @@ impl<S: Shape, ST: Storage<ShapeGridCell>, O: Copy> ShapeGrid<O, S, ST> {
             cell.objs.swap_remove(p);
         });
 
-        Self::cells_apply(storage, &shape, |cell, sing_cell| cell.objs.push((handle, sing_cell)));
+        Self::cells_apply(storage, &shape, |cell, sing_cell| {
+            cell.objs.push((handle, sing_cell))
+        });
 
         obj.shape = shape;
     }
@@ -325,8 +327,7 @@ impl<S: Shape, ST: Storage<ShapeGridCell>, O: Copy> ShapeGrid<O, S, ST> {
         let ll_id = storage.cell_id(bbox.ll);
         let ur_id = storage.cell_id(bbox.ur);
 
-        let iter = storage
-            .cell_range(ll_id, ur_id)
+        let iter = cell_range(ll_id, ur_id)
             .filter(move |&id| shape.intersects(storage.cell_aabb(id)))
             .flat_map(move |id| storage.cell(id))
             .flat_map(|x| x.objs.iter().copied());
@@ -590,9 +591,9 @@ mod testssparse {
                 },
             );
 
-            dbg!(g.storage.cell_aabb(g.storage.cell_id(aabb.ll)));
+            //dbg!(g.storage.cell_aabb(g.storage.cell_id(aabb.ll)));
 
-            dbg!(aabb);
+            //dbg!(aabb);
 
             let h = g.insert(aabb, ());
             assert_eq!(
