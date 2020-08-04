@@ -195,11 +195,11 @@ impl<T: Default> Storage<T> for DenseStorage<T> {
     fn cell_id(&self, pos: Point2<f32>) -> Self::Idx {
         (((pos.y as i32 - self.start_y) / self.cell_size)
             .max(0)
-            .min(self.height)
+            .min(self.height - 1)
             * self.width
             + ((pos.x as i32 - self.start_x) / self.cell_size)
                 .max(0)
-                .min(self.width)) as usize
+                .min(self.width - 1)) as usize
     }
 
     fn cell_aabb(&self, id: Self::Idx) -> AABB {
@@ -233,6 +233,21 @@ mod tests {
     use super::DenseIter;
     use crate::cell::GridCell;
     use crate::storage::{DenseStorage, Storage};
+    use mint::Point2;
+
+    #[test]
+    fn invalid_id_test() {
+        let s = DenseStorage::<GridCell>::new_rect(10, 0, 0, 1, 1);
+
+        assert_eq!(s.cell_id(Point2 { x: 15.0, y: 15.0 }), 0);
+        assert_eq!(s.cell_id(Point2 { x: 5.0, y: 15.0 }), 0);
+        assert_eq!(s.cell_id(Point2 { x: 15.0, y: 5.0 }), 0);
+        assert_eq!(s.cell_id(Point2 { x: 5.0, y: 5.0 }), 0);
+        assert_eq!(s.cell_id(Point2 { x: -15.0, y: 15.0 }), 0);
+        assert_eq!(s.cell_id(Point2 { x: 5.0, y: -15.0 }), 0);
+        assert_eq!(s.cell_id(Point2 { x: 15.0, y: -5.0 }), 0);
+        assert_eq!(s.cell_id(Point2 { x: -5.0, y: 5.0 }), 0);
+    }
 
     #[test]
     fn test_dense_iter_manual() {
