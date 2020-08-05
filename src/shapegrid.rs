@@ -205,11 +205,8 @@ impl<S: Shape, ST: Storage<ShapeGridCell>, O: Copy> ShapeGrid<O, S, ST> {
     /// }, ());
     /// g.remove(h);
     /// ```
-    pub fn remove(&mut self, handle: ShapeGridHandle) {
-        let st = self
-            .objects
-            .remove(handle)
-            .expect("Object not in grid anymore");
+    pub fn remove(&mut self, handle: ShapeGridHandle) -> Option<O> {
+        let st = self.objects.remove(handle)?;
 
         let storage = &mut self.storage;
         Self::cells_apply(storage, &st.shape, |cell, _| {
@@ -219,6 +216,8 @@ impl<S: Shape, ST: Storage<ShapeGridCell>, O: Copy> ShapeGrid<O, S, ST> {
             };
             cell.objs.swap_remove(p);
         });
+
+        Some(st.obj)
     }
 
     /// Iterate over all handles

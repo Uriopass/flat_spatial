@@ -185,14 +185,13 @@ impl<ST: Storage<GridCell>, O: Copy> Grid<O, ST> {
     /// let h = g.insert([5.0, 3.0], ());
     /// g.remove(h);
     /// ```
-    pub fn remove(&mut self, handle: GridHandle) {
-        let obj = self
-            .objects
-            .get_mut(handle)
-            .expect("Object not in grid anymore");
+    pub fn remove(&mut self, handle: GridHandle) -> Option<O> {
+        let obj = self.objects.get_mut(handle)?;
 
         obj.state = ObjectState::Removed;
         self.storage.cell_mut_unchecked(obj.cell_id).dirty = true;
+
+        Some(obj.obj)
     }
 
     /// Maintains the world, updating all the positions (and moving them to corresponding cells)
