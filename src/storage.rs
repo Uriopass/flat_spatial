@@ -32,6 +32,7 @@ pub trait Storage<T> {
 
 /// DenseStorage stores cells in a Vec to be used for a Grid.
 /// It implements the Storage trait.
+#[derive(Clone)]
 pub struct DenseStorage<T: Default> {
     cell_size: i32,
     start_x: i32,
@@ -214,6 +215,7 @@ impl<T: Default> Storage<T> for DenseStorage<T> {
 /// SparseStorage stores cells in a HashMap to be used in a Grid.
 /// It is Sparse because cells are eagerly allocated, and cleaned when they are empty.
 /// It implements the Storage trait.
+#[derive(Clone)]
 pub struct SparseStorage<T: Default> {
     cell_size: i32,
     cells: HashMap<CellIdx, T>,
