@@ -4,6 +4,9 @@ use mint::Point2;
 use slotmap::new_key_type;
 use slotmap::SlotMap;
 
+#[cfg(feature = "serde")]
+use serde_crate::{Deserialize, Serialize};
+
 pub type GridObjects<O> = SlotMap<GridHandle, StoreObject<O>>;
 
 new_key_type! {
@@ -14,7 +17,11 @@ new_key_type! {
 
 /// State of an object, maintain() updates the internals of the grid and resets this to Unchanged
 #[derive(Clone, Copy, Debug)]
-#[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
+#[cfg_attr(
+    feature = "serde",
+    derive(Serialize, Deserialize),
+    serde(crate = "serde_crate")
+)]
 pub enum ObjectState {
     Unchanged,
     NewPos(Point2<f32>),
@@ -24,7 +31,11 @@ pub enum ObjectState {
 
 /// The actual object stored in the store
 #[derive(Clone, Copy)]
-#[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
+#[cfg_attr(
+    feature = "serde",
+    derive(Serialize, Deserialize),
+    serde(crate = "serde_crate")
+)]
 pub struct StoreObject<O: Copy> {
     /// User-defined object to be associated with a value
     obj: O,
@@ -97,7 +108,11 @@ pub struct StoreObject<O: Copy> {
 /// assert_eq!(g.get(a), None); // But that a doesn't exist anymore
 /// ```
 #[derive(Clone)]
-#[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
+#[cfg_attr(
+    feature = "serde",
+    derive(Serialize, Deserialize),
+    serde(crate = "serde_crate")
+)]
 pub struct Grid<O: Copy, ST: Storage<GridCell> = SparseStorage<GridCell>> {
     storage: ST,
     objects: GridObjects<O>,

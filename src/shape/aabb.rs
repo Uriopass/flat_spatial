@@ -2,7 +2,11 @@ pub use super::*;
 use mint::Point2;
 
 #[derive(Clone, Copy, Debug)]
-#[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
+#[cfg_attr(
+    feature = "serde",
+    derive(Serialize, Deserialize),
+    serde(crate = "serde_crate")
+)]
 pub struct AABB {
     /// Lower left of the AABB
     pub ll: Point2<f32>,

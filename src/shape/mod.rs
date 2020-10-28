@@ -8,6 +8,9 @@ pub use aabb::*;
 pub use circle::*;
 pub use segment::*;
 
+#[cfg(feature = "serde")]
+use serde_crate::{Deserialize, Serialize};
+
 fn dot(a: Point2<f32>, b: Point2<f32>) -> f32 {
     a.x * b.x + a.y * b.y
 }

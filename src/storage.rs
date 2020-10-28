@@ -2,6 +2,9 @@ use crate::shape::AABB;
 use mint::Point2;
 use std::collections::HashMap;
 
+#[cfg(feature = "serde")]
+use serde_crate::{Deserialize, Serialize};
+
 pub type CellIdx = (i32, i32);
 
 pub fn cell_range((x1, y1): CellIdx, (x2, y2): CellIdx) -> impl Iterator<Item = CellIdx> {
@@ -33,7 +36,11 @@ pub trait Storage<T> {
 /// DenseStorage stores cells in a Vec to be used for a Grid.
 /// It implements the Storage trait.
 #[derive(Clone)]
-#[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
+#[cfg_attr(
+    feature = "serde",
+    derive(Serialize, Deserialize),
+    serde(crate = "serde_crate")
+)]
 pub struct DenseStorage<T: Default> {
     cell_size: i32,
     start_x: i32,
@@ -217,7 +224,11 @@ impl<T: Default> Storage<T> for DenseStorage<T> {
 /// It is Sparse because cells are eagerly allocated, and cleaned when they are empty.
 /// It implements the Storage trait.
 #[derive(Clone)]
-#[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
+#[cfg_attr(
+    feature = "serde",
+    derive(Serialize, Deserialize),
+    serde(crate = "serde_crate")
+)]
 pub struct SparseStorage<T: Default> {
     cell_size: i32,
     cells: HashMap<CellIdx, T>,

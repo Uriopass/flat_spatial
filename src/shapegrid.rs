@@ -6,6 +6,9 @@ use slotmap::new_key_type;
 use slotmap::SlotMap;
 use std::collections::HashSet;
 
+#[cfg(feature = "serde")]
+use serde_crate::{Deserialize, Serialize};
+
 pub type ShapeGridObjects<O, S> = SlotMap<ShapeGridHandle, StoreObject<O, S>>;
 
 new_key_type! {
@@ -16,7 +19,11 @@ new_key_type! {
 
 /// The actual object stored in the store
 #[derive(Clone, Copy)]
-#[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
+#[cfg_attr(
+    feature = "serde",
+    derive(Serialize, Deserialize),
+    serde(crate = "serde_crate")
+)]
 pub struct StoreObject<O: Copy, S: Shape> {
     /// User-defined object to be associated with a value
     obj: O,
@@ -95,7 +102,11 @@ pub struct StoreObject<O: Copy, S: Shape> {
 /// assert!(g.get(a).is_none()); // But that a doesn't exist anymore
 /// ```
 #[derive(Clone)]
-#[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
+#[cfg_attr(
+    feature = "serde",
+    derive(Serialize, Deserialize),
+    serde(crate = "serde_crate")
+)]
 pub struct ShapeGrid<O: Copy, S: Shape, ST: Storage<ShapeGridCell> = SparseStorage<ShapeGridCell>> {
     storage: ST,
     objects: ShapeGridObjects<O, S>,
