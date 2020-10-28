@@ -33,6 +33,7 @@ pub trait Storage<T> {
 /// DenseStorage stores cells in a Vec to be used for a Grid.
 /// It implements the Storage trait.
 #[derive(Clone)]
+#[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
 pub struct DenseStorage<T: Default> {
     cell_size: i32,
     start_x: i32,
@@ -216,6 +217,7 @@ impl<T: Default> Storage<T> for DenseStorage<T> {
 /// It is Sparse because cells are eagerly allocated, and cleaned when they are empty.
 /// It implements the Storage trait.
 #[derive(Clone)]
+#[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
 pub struct SparseStorage<T: Default> {
     cell_size: i32,
     cells: HashMap<CellIdx, T>,

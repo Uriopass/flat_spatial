@@ -6,12 +6,14 @@ pub type CellObject = (GridHandle, mint::Point2<f32>);
 
 /// A single cell of the grid, can be empty
 #[derive(Default, Clone)]
+#[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
 pub struct GridCell {
     pub objs: Vec<CellObject>,
     pub dirty: bool,
 }
 
 #[derive(Default, Clone)]
+#[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
 pub struct ShapeGridCell {
     pub objs: Vec<(ShapeGridHandle, bool)>,
 }

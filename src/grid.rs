@@ -14,6 +14,7 @@ new_key_type! {
 
 /// State of an object, maintain() updates the internals of the grid and resets this to Unchanged
 #[derive(Clone, Copy, Debug)]
+#[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
 pub enum ObjectState {
     Unchanged,
     NewPos(Point2<f32>),
@@ -23,6 +24,7 @@ pub enum ObjectState {
 
 /// The actual object stored in the store
 #[derive(Clone, Copy)]
+#[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
 pub struct StoreObject<O: Copy> {
     /// User-defined object to be associated with a value
     obj: O,
@@ -61,7 +63,7 @@ pub struct StoreObject<O: Copy> {
 ///
 /// ```rust
 /// use flat_spatial::Grid;
-/// let mut g: Grid<()> = Grid::new(10);
+/// let mut g: Grid<()> = Grid::new();
 /// let handle = g.insert([0.0, 0.0], ());
 /// // Use handle however you want
 /// ```
@@ -71,7 +73,7 @@ pub struct StoreObject<O: Copy> {
 /// ```rust
 /// use flat_spatial::Grid;
 ///
-/// let mut g: Grid<i32> = Grid::new(10); // Creates a new grid with a cell width of 10 with an integer as extra data
+/// let mut g: Grid<i32> = Grid::new(); // Creates a new grid with a cell width of 10 with an integer as extra data
 /// let a = g.insert([0.0, 0.0], 0); // Inserts a new element with data: 0
 ///
 /// {
@@ -95,6 +97,7 @@ pub struct StoreObject<O: Copy> {
 /// assert_eq!(g.get(a), None); // But that a doesn't exist anymore
 /// ```
 #[derive(Clone)]
+#[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
 pub struct Grid<O: Copy, ST: Storage<GridCell> = SparseStorage<GridCell>> {
     storage: ST,
     objects: GridObjects<O>,
@@ -125,7 +128,7 @@ impl<ST: Storage<GridCell>, O: Copy> Grid<O, ST> {
     /// # Example
     /// ```rust
     /// use flat_spatial::Grid;
-    /// let mut g: Grid<()> = Grid::new(10);
+    /// let mut g: Grid<()> = Grid::new();
     /// let h = g.insert([5.0, 3.0], ());
     /// ```
     pub fn insert(&mut self, pos: impl Into<Point2<f32>>, obj: O) -> GridHandle {
@@ -152,7 +155,7 @@ impl<ST: Storage<GridCell>, O: Copy> Grid<O, ST> {
     /// # Example
     /// ```rust
     /// use flat_spatial::Grid;
-    /// let mut g: Grid<()> = Grid::new(10);
+    /// let mut g: Grid<()> = Grid::new();
     /// let h = g.insert([5.0, 3.0], ());
     /// g.set_position(h, [3.0, 3.0]);
     /// ```
@@ -181,7 +184,7 @@ impl<ST: Storage<GridCell>, O: Copy> Grid<O, ST> {
     /// # Example
     /// ```rust
     /// use flat_spatial::Grid;
-    /// let mut g: Grid<()> = Grid::new(10);
+    /// let mut g: Grid<()> = Grid::new();
     /// let h = g.insert([5.0, 3.0], ());
     /// g.remove(h);
     /// ```
@@ -200,7 +203,7 @@ impl<ST: Storage<GridCell>, O: Copy> Grid<O, ST> {
     /// # Example
     /// ```rust
     /// use flat_spatial::Grid;
-    /// let mut g: Grid<()> = Grid::new(10);
+    /// let mut g: Grid<()> = Grid::new();
     /// let h = g.insert([5.0, 3.0], ());
     /// g.remove(h);
     ///
@@ -241,7 +244,7 @@ impl<ST: Storage<GridCell>, O: Copy> Grid<O, ST> {
     /// # Example
     /// ```rust
     /// use flat_spatial::Grid;
-    /// let mut g: Grid<i32> = Grid::new(10);
+    /// let mut g: Grid<i32> = Grid::new();
     /// let h = g.insert([5.0, 3.0], 42);
     /// assert_eq!(g.get(h), Some(([5.0, 3.0].into(), &42)));
     /// ```
@@ -254,7 +257,7 @@ impl<ST: Storage<GridCell>, O: Copy> Grid<O, ST> {
     /// # Example
     /// ```rust
     /// use flat_spatial::Grid;
-    /// let mut g: Grid<i32> = Grid::new(10);
+    /// let mut g: Grid<i32> = Grid::new();
     /// let h = g.insert([5.0, 3.0], 42);
     /// *g.get_mut(h).unwrap().1 = 56;
     /// assert_eq!(g.get(h).unwrap().1, &56);
@@ -275,7 +278,7 @@ impl<ST: Storage<GridCell>, O: Copy> Grid<O, ST> {
     /// ```rust
     /// use flat_spatial::Grid;
     ///
-    /// let mut g: Grid<()> = Grid::new(10);
+    /// let mut g: Grid<()> = Grid::new();
     /// let a = g.insert([0.0, 0.0], ());
     ///
     /// let around: Vec<_> = g.query_around([2.0, 2.0], 5.0).map(|(id, _pos)| id).collect();
@@ -307,7 +310,7 @@ impl<ST: Storage<GridCell>, O: Copy> Grid<O, ST> {
     /// ```rust
     /// use flat_spatial::Grid;
     ///
-    /// let mut g: Grid<()> = Grid::new(10);
+    /// let mut g: Grid<()> = Grid::new();
     /// let a = g.insert([0.0, 0.0], ());
     ///
     /// let around: Vec<_> = g.query_aabb([-1.0, -1.0], [1.0, 1.0]).map(|(id, _pos)| id).collect();
@@ -337,7 +340,7 @@ impl<ST: Storage<GridCell>, O: Copy> Grid<O, ST> {
     /// ```rust
     /// use flat_spatial::Grid;
     ///
-    /// let mut g: Grid<()> = Grid::new(10);
+    /// let mut g: Grid<()> = Grid::new();
     /// let a = g.insert([0.0, 0.0], ());
     /// let b = g.insert([5.0, 5.0], ());
     ///
@@ -364,7 +367,7 @@ impl<ST: Storage<GridCell>, O: Copy> Grid<O, ST> {
     /// ```rust
     /// use flat_spatial::Grid;
     ///
-    /// let mut g: Grid<()> = Grid::new(10);
+    /// let mut g: Grid<()> = Grid::new();
     /// let a = g.insert([2.0, 2.0], ());
     ///
     /// let around = g.get_cell([1.0, 1.0]).collect::<Vec<_>>();

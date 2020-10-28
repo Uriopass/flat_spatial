@@ -13,8 +13,12 @@ repository = "https://github.com/Uriopass/flat_spatial"
 
 [dependencies]
 slotmap = {version = "0.4", default-features = false}
-mint = "0.5.5"
+mint = { git = "https://github.com/Uriopass/mint" } # TODO: use actual mint when merged
 retain_mut = "0.1.1"
+serde = {version = "1.0", optional = true}
+
+[features]
+serde-1 = ["serde", "slotmap/serde", "mint/serde"]
 
 [[example]]
 name = "collision_detector"
