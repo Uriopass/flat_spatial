@@ -61,7 +61,7 @@ impl Intersect<AABB> for AABB {
         let y =
             f32::abs((a.ll.y + a.ur.y) - (b.ll.y + b.ur.y)) <= (a.ur.y - a.ll.y + b.ur.y - b.ll.y);
 
-        x && y
+        x & y
     }
 }
 

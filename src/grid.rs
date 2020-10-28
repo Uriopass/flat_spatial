@@ -158,18 +158,24 @@ impl<ST: Storage<GridCell>, O: Copy> Grid<O, ST> {
     pub fn set_position(&mut self, handle: GridHandle, pos: impl Into<Point2<f32>>) {
         let pos = pos.into();
 
-        let obj = self
-            .objects
-            .get_mut(handle)
-            .expect("Object not in grid anymore");
-        if !matches!(obj.state, ObjectState::Removed) {
-            let target_id = self.storage.cell_id(pos);
-            obj.state = if target_id == obj.cell_id {
-                ObjectState::NewPos(pos)
-            } else {
-                ObjectState::Relocate(pos, target_id)
-            };
+        let obj = match self.objects.get_mut(handle) {
+            Some(x) => x,
+            None => {
+                debug_assert!(false, "Object not in grid anymore");
+                return;
+            }
+        };
+
+        if matches!(obj.state, ObjectState::Removed) {
+            return;
         }
+
+        let target_id = self.storage.cell_id(pos);
+        obj.state = if target_id == obj.cell_id {
+            ObjectState::NewPos(pos)
+        } else {
+            ObjectState::Relocate(pos, target_id)
+        };
 
         self.storage.cell_mut_unchecked(obj.cell_id).dirty = true;
     }

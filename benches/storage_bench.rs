@@ -1,5 +1,6 @@
 use criterion::{black_box, criterion_group, criterion_main, Criterion};
-use flat_spatial::storage::DenseStorage;
+use flat_spatial::cell::ShapeGridCell;
+use flat_spatial::storage::{DenseStorage, SparseStorage};
 use flat_spatial::{DenseGrid, ShapeGrid, SparseGrid};
 use rstar::{RTree, RTreeObject};
 use std::time::{Duration, Instant};
@@ -89,7 +90,10 @@ fn query_5_shapegrid(g: &ShapeGrid<Data, [f32; 2]>, iter: u64) -> Duration {
 
     for _ in 0..iter {
         let pos = [rand::random::<f32>() * SIZE, rand::random::<f32>() * SIZE];
-        for x in grid.query_around(pos, 5.0) {
+        for x in grid.query(flat_spatial::shape::AABB {
+            ll: [pos[0] - 5.0, pos[1] - 5.0].into(),
+            ur: [pos[0] + 5.0, pos[1] + 5.0].into(),
+        }) {
             black_box(x);
         }
     }
