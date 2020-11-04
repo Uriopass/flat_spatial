@@ -13,7 +13,7 @@ repository = "https://github.com/Uriopass/flat_spatial"
 
 [dependencies]
 slotmap = {version = "0.4", default-features = false}
-mint = { git = "https://github.com/Uriopass/mint" } # TODO: use actual mint when merged
+mint = { version = "0.5.6", features = ["serde"] }
 serde_crate = {package="serde", version = "1.0", features = ["derive"], optional = true}
 
 [features]
