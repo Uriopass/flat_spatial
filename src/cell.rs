@@ -1,37 +1,37 @@
 use crate::grid::{GridHandle, GridObjects, ObjectState};
 use crate::shapegrid::ShapeGridHandle;
-#[cfg(feature = "serde")]
-use serde_crate::{Deserialize, Serialize};
+use crate::Vec2;
 
-pub type CellObject = (GridHandle, mint::Point2<f32>);
+pub type CellObject<V2> = (GridHandle, V2);
 
 /// A single cell of the grid, can be empty
-#[derive(Default, Clone)]
-#[cfg_attr(
-    feature = "serde",
-    derive(Serialize, Deserialize),
-    serde(crate = "serde_crate")
-)]
-pub struct GridCell {
-    pub objs: Vec<CellObject>,
+#[derive(Clone)]
+#[cfg_attr(feature="serde", derive(serde::Serialize, serde::Deserialize))]
+pub struct GridCell<V2: Vec2> {
+    pub objs: Vec<CellObject<V2>>,
     pub dirty: bool,
 }
 
+impl<V2: Vec2> Default for GridCell<V2> {
+    fn default() -> Self {
+        Self {
+            objs: Vec::new(),
+            dirty: false,
+        }
+    }
+}
+
 #[derive(Default, Clone)]
-#[cfg_attr(
-    feature = "serde",
-    derive(Serialize, Deserialize),
-    serde(crate = "serde_crate")
-)]
+#[cfg_attr(feature="serde", derive(serde::Serialize, serde::Deserialize))]
 pub struct ShapeGridCell {
     pub objs: Vec<(ShapeGridHandle, bool)>,
 }
 
-impl GridCell {
-    pub fn maintain<T: Copy>(
+impl<V2: Vec2> GridCell<V2> {
+    pub(crate) fn maintain<T: Copy>(
         &mut self,
-        objects: &mut GridObjects<T>,
-        to_relocate: &mut Vec<CellObject>,
+        objects: &mut GridObjects<T, V2>,
+        to_relocate: &mut Vec<CellObject<V2>>,
     ) {
         if !self.dirty {
             return;

@@ -1,13 +1,10 @@
 use crate::cell::{CellObject, GridCell};
-use crate::storage::{cell_range, CellIdx, SparseStorage, Storage};
-use mint::Point2;
-use slotmap::new_key_type;
-use slotmap::SlotMap;
+use crate::storage::{cell_range, CellIdx, SparseStorage};
+use crate::Vec2;
+use slotmap::{new_key_type, SlotMap};
+use std::marker::PhantomData;
 
-#[cfg(feature = "serde")]
-use serde_crate::{Deserialize, Serialize};
-
-pub type GridObjects<O> = SlotMap<GridHandle, StoreObject<O>>;
+pub type GridObjects<O, V2> = SlotMap<GridHandle, StoreObject<O, V2>>;
 
 new_key_type! {
     /// This handle is used to modify the associated object or to update its position.
@@ -17,30 +14,22 @@ new_key_type! {
 
 /// State of an object, maintain() updates the internals of the grid and resets this to Unchanged
 #[derive(Clone, Copy, Debug)]
-#[cfg_attr(
-    feature = "serde",
-    derive(Serialize, Deserialize),
-    serde(crate = "serde_crate")
-)]
-pub enum ObjectState {
+#[cfg_attr(feature="serde", derive(serde::Serialize, serde::Deserialize))]
+pub enum ObjectState<V2: Vec2> {
     Unchanged,
-    NewPos(Point2<f32>),
-    Relocate(Point2<f32>, CellIdx),
+    NewPos(V2),
+    Relocate(V2, CellIdx),
     Removed,
 }
 
 /// The actual object stored in the store
 #[derive(Clone, Copy)]
-#[cfg_attr(
-    feature = "serde",
-    derive(Serialize, Deserialize),
-    serde(crate = "serde_crate")
-)]
-pub struct StoreObject<O: Copy> {
+#[cfg_attr(feature="serde", derive(serde::Serialize, serde::Deserialize))]
+pub struct StoreObject<O, V2: Vec2> {
     /// User-defined object to be associated with a value
     obj: O,
-    pub state: ObjectState,
-    pub pos: Point2<f32>,
+    pub state: ObjectState<V2>,
+    pub pos: V2,
     pub cell_id: CellIdx,
 }
 
@@ -60,31 +49,25 @@ pub struct StoreObject<O: Copy> {
 /// Compare that to most immutable spatial partitioning structures out there, which pretty much require
 /// to rebuild the entire tree every time.
 ///
-/// A SlotMap is used for objects managing, adding a level of indirection between points and objects.
-/// SlotMap is used because removal doesn't alter handles given to the user, while still having constant time access.
-/// However it requires O to be copy, but SlotMap's author stated that they were working on a similar
+/// A `SlotMap` is used for objects managing, adding a level of indirection between points and objects.
+/// `SlotMap` is used because removal doesn't alter handles given to the user, while still having constant time access.
+/// However it requires O to be copy, but `SlotMap's` author stated that they were working on a similar
 /// map where Copy isn't required.
 ///
-/// ## About object managment
+/// ## About object management
 ///
-/// In theory, you don't have to use the object managment directly, you can make your custom
+/// In theory, you don't have to use the object management directly, you can make your custom
 /// Handle -> Object map by specifying "`()`" to be the object type.
 /// _(This can be useful if your object is not Copy)_
-/// Since `()` is zero sized, it should probably optimize away a lot of the object managment code.
+/// Since `()` is zero sized, it should probably optimize away a lot of the object management code.
 ///
-/// ```rust
-/// use flat_spatial::Grid;
-/// let mut g: Grid<()> = Grid::new(10);
-/// let handle = g.insert([0.0, 0.0], ());
-/// // Use handle however you want
-/// ```
 ///
 /// ## Examples
 /// Here is a basic example that shows most of its capabilities:
 /// ```rust
 /// use flat_spatial::Grid;
 ///
-/// let mut g: Grid<i32> = Grid::new(10); // Creates a new grid with a cell width of 10 with an integer as extra data
+/// let mut g: Grid<i32, [f32; 2]> = Grid::new(10); // Creates a new grid with a cell width of 10 with an integer as extra data
 /// let a = g.insert([0.0, 0.0], 0); // Inserts a new element with data: 0
 ///
 /// {
@@ -108,47 +91,30 @@ pub struct StoreObject<O: Copy> {
 /// assert_eq!(g.get(a), None); // But that a doesn't exist anymore
 /// ```
 #[derive(Clone)]
-#[cfg_attr(
-    feature = "serde",
-    derive(Serialize, Deserialize),
-    serde(crate = "serde_crate")
-)]
-pub struct Grid<O: Copy, ST: Storage<GridCell> = SparseStorage<GridCell>> {
-    storage: ST,
-    objects: GridObjects<O>,
+#[cfg_attr(feature="serde", derive(serde::Serialize, serde::Deserialize))]
+pub struct Grid<O, V2: Vec2> {
+    storage: SparseStorage<GridCell<V2>>,
+    objects: GridObjects<O, V2>,
     // Cache maintain vec to avoid allocating every time maintain is called
-    to_relocate: Vec<CellObject>,
+    to_relocate: Vec<CellObject<V2>>,
+    _phantom: PhantomData<V2>,
 }
 
-impl<ST: Storage<GridCell>, O: Copy> Grid<O, ST> {
+impl<O: Copy, V2: Vec2> Grid<O, V2> {
     /// Creates an empty grid.   
     /// The cell size should be about the same magnitude as your queries size.
     pub fn new(cell_size: i32) -> Self {
-        Self::with_storage(ST::new(cell_size))
-    }
-
-    /// Creates an empty grid.   
-    /// The cell size should be about the same magnitude as your queries size.
-    pub fn with_storage(st: ST) -> Self {
         Self {
-            storage: st,
+            storage: SparseStorage::new(cell_size),
             objects: SlotMap::with_key(),
             to_relocate: vec![],
+            _phantom: Default::default(),
         }
     }
 
     /// Inserts a new object with a position and an associated object
-    /// Returns the unique and stable handle to be used with get_obj
-    ///
-    /// # Example
-    /// ```rust
-    /// use flat_spatial::Grid;
-    /// let mut g: Grid<()> = Grid::new(10);
-    /// let h = g.insert([5.0, 3.0], ());
-    /// ```
-    pub fn insert(&mut self, pos: impl Into<Point2<f32>>, obj: O) -> GridHandle {
-        let pos = pos.into();
-
+    /// Returns the unique and stable handle to be used with `get_obj`
+    pub fn insert(&mut self, pos: V2, obj: O) -> GridHandle {
         let (cell_id, cell) = self.storage.cell_mut(pos);
         let handle = self.objects.insert(StoreObject {
             obj,
@@ -161,18 +127,8 @@ impl<ST: Storage<GridCell>, O: Copy> Grid<O, ST> {
     }
 
     /// Lazily sets the position of an object (if it is not marked for deletion).
-    /// This won't be taken into account until maintain() is called.  
-    ///
-    /// # Example
-    /// ```rust
-    /// use flat_spatial::Grid;
-    /// let mut g: Grid<()> = Grid::new(10);
-    /// let h = g.insert([5.0, 3.0], ());
-    /// g.set_position(h, [3.0, 3.0]);
-    /// ```
-    pub fn set_position(&mut self, handle: GridHandle, pos: impl Into<Point2<f32>>) {
-        let pos = pos.into();
-
+    /// This won't be taken into account until maintain() is called.
+    pub fn set_position(&mut self, handle: GridHandle, pos: V2) {
         let obj = match self.objects.get_mut(handle) {
             Some(x) => x,
             None => {
@@ -201,7 +157,7 @@ impl<ST: Storage<GridCell>, O: Copy> Grid<O, ST> {
     /// # Example
     /// ```rust
     /// use flat_spatial::Grid;
-    /// let mut g: Grid<()> = Grid::new(10);
+    /// let mut g: Grid<(), [f32; 2]> = Grid::new(10);
     /// let h = g.insert([5.0, 3.0], ());
     /// g.remove(h);
     /// ```
@@ -214,13 +170,42 @@ impl<ST: Storage<GridCell>, O: Copy> Grid<O, ST> {
         Some(obj.obj)
     }
 
+    /// Directly removes an object from the grid.
+    /// This is equivalent to remove() then maintain() but is much faster (O(1))
+    ///
+    /// # Example
+    /// ```rust
+    /// use flat_spatial::Grid;
+    /// let mut g: Grid<(), [f32; 2]> = Grid::new(10);
+    /// let h = g.insert([5.0, 3.0], ());
+    /// g.remove(h);
+    /// ```
+    pub fn remove_maintain(&mut self, handle: GridHandle) -> Option<O> {
+        let obj = self.objects.remove(handle)?;
+
+        let cell = self.storage.cell_mut_unchecked(obj.cell_id);
+
+        cell.objs.retain(|&(h, _)| h != handle);
+
+        Some(obj.obj)
+    }
+
+    /// Clear all objects from the grid.
+    /// Returns the objects and their positions.
+    pub fn clear(&mut self) -> impl Iterator<Item = (V2, O)> {
+        let objects = std::mem::take(&mut self.objects);
+        self.storage = SparseStorage::new(self.storage.cell_size());
+        self.to_relocate.clear();
+        objects.into_iter().map(|(_, x)| (x.pos, x.obj))
+    }
+
     /// Maintains the world, updating all the positions (and moving them to corresponding cells)
     /// and removing necessary objects and empty cells.
     /// Runs in linear time O(N) where N is the number of objects.
     /// # Example
     /// ```rust
     /// use flat_spatial::Grid;
-    /// let mut g: Grid<()> = Grid::new(10);
+    /// let mut g: Grid<(), [f32; 2]> = Grid::new(10);
     /// let h = g.insert([5.0, 3.0], ());
     /// g.remove(h);
     ///
@@ -252,8 +237,8 @@ impl<ST: Storage<GridCell>, O: Copy> Grid<O, ST> {
     }
 
     /// Iterate over all objects
-    pub fn objects(&self) -> impl Iterator<Item = &O> + '_ {
-        self.objects.values().map(|x| &x.obj)
+    pub fn objects(&self) -> impl Iterator<Item = (V2, &O)> + '_ {
+        self.objects.values().map(|x| (x.pos, &x.obj))
     }
 
     /// Returns a reference to the associated object and its position, using the handle.  
@@ -261,11 +246,11 @@ impl<ST: Storage<GridCell>, O: Copy> Grid<O, ST> {
     /// # Example
     /// ```rust
     /// use flat_spatial::Grid;
-    /// let mut g: Grid<i32> = Grid::new(10);
+    /// let mut g: Grid<i32, [f32; 2]> = Grid::new(10);
     /// let h = g.insert([5.0, 3.0], 42);
-    /// assert_eq!(g.get(h), Some(([5.0, 3.0].into(), &42)));
+    /// assert_eq!(g.get(h), Some(([5.0, 3.0], &42)));
     /// ```
-    pub fn get(&self, id: GridHandle) -> Option<(Point2<f32>, &O)> {
+    pub fn get(&self, id: GridHandle) -> Option<(V2, &O)> {
         self.objects.get(id).map(|x| (x.pos, &x.obj))
     }
 
@@ -274,80 +259,41 @@ impl<ST: Storage<GridCell>, O: Copy> Grid<O, ST> {
     /// # Example
     /// ```rust
     /// use flat_spatial::Grid;
-    /// let mut g: Grid<i32> = Grid::new(10);
+    /// let mut g: Grid<i32, [f32; 2]> = Grid::new(10);
     /// let h = g.insert([5.0, 3.0], 42);
     /// *g.get_mut(h).unwrap().1 = 56;
     /// assert_eq!(g.get(h).unwrap().1, &56);
     /// ```    
-    pub fn get_mut(&mut self, id: GridHandle) -> Option<(Point2<f32>, &mut O)> {
+    pub fn get_mut(&mut self, id: GridHandle) -> Option<(V2, &mut O)> {
         self.objects.get_mut(id).map(|x| (x.pos, &mut x.obj))
     }
 
     /// The underlying storage
-    pub fn storage(&self) -> &ST {
+    pub fn storage(&self) -> &SparseStorage<GridCell<V2>> {
         &self.storage
     }
 
-    /// Queries for all objects around a position within a certain radius.
-    /// Try to keep the radius asked and the cell size of similar magnitude for better performance.
-    ///
-    /// # Example
-    /// ```rust
-    /// use flat_spatial::Grid;
-    ///
-    /// let mut g: Grid<()> = Grid::new(10);
-    /// let a = g.insert([0.0, 0.0], ());
-    ///
-    /// let around: Vec<_> = g.query_around([2.0, 2.0], 5.0).map(|(id, _pos)| id).collect();
-    ///
-    /// assert_eq!(vec![a], around);
-    /// ```
-    pub fn query_around(
-        &self,
-        pos: impl Into<Point2<f32>>,
-        radius: f32,
-    ) -> impl Iterator<Item = CellObject> + '_ {
-        let pos = pos.into();
-
-        let ll = [pos.x - radius, pos.y - radius].into(); // lower left
-        let ur = [pos.x + radius, pos.y + radius].into(); // upper right
+    pub fn query_around(&self, pos: V2, radius: f32) -> impl Iterator<Item = CellObject<V2>> + '_ {
+        let ll = [pos.x() - radius, pos.y() - radius];
+        let ur = [pos.x() + radius, pos.y() + radius];
 
         let radius2 = radius * radius;
-        self.query_raw(ll, ur).filter(move |(_, pos_obj)| {
-            let x = pos_obj.x - pos.x;
-            let y = pos_obj.y - pos.y;
-            x * x + y * y < radius2
-        })
+        self.query(ll.into(), ur.into())
+            .filter(move |(_, pos_obj)| {
+                let x = pos_obj.x() - pos.x();
+                let y = pos_obj.y() - pos.y();
+                x * x + y * y < radius2
+            })
     }
 
-    /// Queries for all objects in an aabb (aka a rect).
-    /// Try to keep the rect's width/height of similar magnitudes to the cell size for better performance.
-    ///
-    /// # Example
-    /// ```rust
-    /// use flat_spatial::Grid;
-    ///
-    /// let mut g: Grid<()> = Grid::new(10);
-    /// let a = g.insert([0.0, 0.0], ());
-    ///
-    /// let around: Vec<_> = g.query_aabb([-1.0, -1.0], [1.0, 1.0]).map(|(id, _pos)| id).collect();
-    ///
-    /// assert_eq!(vec![a], around);
-    /// ```
-    pub fn query_aabb(
-        &self,
-        aa: impl Into<Point2<f32>>,
-        bb: impl Into<Point2<f32>>,
-    ) -> impl Iterator<Item = CellObject> + '_ {
-        let aa = aa.into();
-        let bb = bb.into();
+    pub fn query_aabb(&self, ll_: V2, ur_: V2) -> impl Iterator<Item = CellObject<V2>> + '_ {
+        let ll = [ll_.x().min(ur_.x()), ll_.y().min(ur_.y())];
+        let ur = [ll_.x().max(ur_.x()), ll_.y().max(ur_.y())];
 
-        let ll = [aa.x.min(bb.x), aa.y.min(bb.y)].into(); // lower left
-        let ur = [aa.x.max(bb.x), aa.y.max(bb.y)].into(); // upper right
-
-        self.query_raw(ll, ur).filter(move |(_, pos_obj)| {
-            (ll.x..=ur.x).contains(&pos_obj.x) && (ll.y..=ur.y).contains(&pos_obj.y)
-        })
+        self.query(ll.into(), ur.into())
+            .filter(move |(_, pos_obj)| {
+                (ll[0]..=ur[0]).contains(&pos_obj.x()) && (ll[1]..=ur[1]).contains(&pos_obj.y())
+            })
     }
 
     /// Queries for all objects in the cells intersecting an axis-aligned rectangle defined by lower left (ll) and upper right (ur)
@@ -357,47 +303,20 @@ impl<ST: Storage<GridCell>, O: Copy> Grid<O, ST> {
     /// ```rust
     /// use flat_spatial::Grid;
     ///
-    /// let mut g: Grid<()> = Grid::new(10);
+    /// let mut g: Grid<(), [f32; 2]> = Grid::new(10);
     /// let a = g.insert([0.0, 0.0], ());
     /// let b = g.insert([5.0, 5.0], ());
     ///
-    /// let around: Vec<_> = g.query_raw([-1.0, -1.0].into(), [1.0, 1.0].into()).map(|(id, _pos)| id).collect();
+    /// let around: Vec<_> = g.query([-1.0, -1.0].into(), [1.0, 1.0].into()).map(|(id, _pos)| id).collect();
     ///
     /// assert_eq!(vec![a, b], around);
     /// ```
-    pub fn query_raw(
-        &self,
-        ll: Point2<f32>,
-        ur: Point2<f32>,
-    ) -> impl Iterator<Item = CellObject> + '_ {
+    pub fn query(&self, ll: V2, ur: V2) -> impl Iterator<Item = CellObject<V2>> + '_ {
         let ll_id = self.storage.cell_id(ll);
         let ur_id = self.storage.cell_id(ur);
 
         cell_range(ll_id, ur_id)
             .flat_map(move |id| self.storage.cell(id))
-            .flat_map(|x| x.objs.iter().copied())
-    }
-
-    /// Allows to look directly at what's in a cell covering a specific position.
-    ///
-    /// # Example
-    /// ```rust
-    /// use flat_spatial::Grid;
-    ///
-    /// let mut g: Grid<()> = Grid::new(10);
-    /// let a = g.insert([2.0, 2.0], ());
-    ///
-    /// let around = g.get_cell([1.0, 1.0]).collect::<Vec<_>>();
-    ///
-    /// assert_eq!(vec![(a, [2.0, 2.0].into())], around);
-    /// ```
-    pub fn get_cell(
-        &mut self,
-        pos: impl Into<mint::Point2<f32>>,
-    ) -> impl Iterator<Item = CellObject> + '_ {
-        self.storage
-            .cell(self.storage.cell_id(pos.into()))
-            .into_iter()
             .flat_map(|x| x.objs.iter().copied())
     }
 
@@ -411,297 +330,5 @@ impl<ST: Storage<GridCell>, O: Copy> Grid<O, ST> {
     /// (removals that were not confirmed with maintain() are still counted)
     pub fn is_empty(&self) -> bool {
         self.objects.is_empty()
-    }
-}
-
-#[cfg(test)]
-mod tests {
-    use crate::storage::DenseStorage;
-    use crate::DenseGrid;
-
-    #[test]
-    fn move_test() {
-        let mut g: DenseGrid<()> = DenseGrid::with_storage(DenseStorage::new_rect(10, 0, 0, 1, 1));
-
-        let h = g.insert([5.0, 5.0], ());
-
-        g.set_position(h, [-5.0, 5.0]);
-        g.maintain();
-
-        let h2 = g.insert([-5.0, 5.0], ());
-
-        assert_eq!(g.query_around([-5.0, 5.0], 0.1).count(), 2);
-
-        g.remove(h2);
-        g.maintain();
-
-        for _ in 0..=10000 {
-            let last = [
-                rand::random::<f32>() * 100.0 - 50.0,
-                rand::random::<f32>() * 100.0 - 50.0,
-            ];
-
-            g.set_position(h, last);
-            g.maintain();
-
-            assert_eq!(g.get(h).unwrap().0, last.into());
-            assert_eq!(g.query_around(last, 0.1).count(), 1);
-        }
-    }
-
-    #[test]
-    fn test_small_query() {
-        let mut g: DenseGrid<()> = DenseGrid::new(10);
-        let a = g.insert([5.0, 0.0], ());
-        let b = g.insert([11.0, 0.0], ());
-        let c = g.insert([5.0, 8.0], ());
-
-        let near: Vec<_> = g.query_around([6.0, 0.0], 2.0).map(|x| x.0).collect();
-        assert_eq!(near, vec![a]);
-
-        let mid: Vec<_> = g.query_around([8.0, 0.0], 4.0).map(|x| x.0).collect();
-        assert!(mid.contains(&a));
-        assert!(mid.contains(&b));
-
-        let far: Vec<_> = g.query_around([6.0, 0.0], 10.0).map(|x| x.0).collect();
-        assert!(far.contains(&a));
-        assert!(far.contains(&b));
-        assert!(far.contains(&c));
-    }
-
-    #[test]
-    fn test_big_query_around() {
-        let mut g: DenseGrid<()> = DenseGrid::new(10);
-
-        for i in 0..100 {
-            g.insert([i as f32, 0.0], ());
-        }
-
-        let q: Vec<_> = g.query_around([15.0, 0.0], 9.5).map(|x| x.0).collect();
-        assert_eq!(q.len(), 19); // 1 middle, 8 left, 8 right
-    }
-
-    #[test]
-    fn test_big_query_around_vert() {
-        let mut g: DenseGrid<()> = DenseGrid::new(10);
-
-        for i in 0..100 {
-            g.insert([0.0, i as f32], ());
-        }
-
-        let q: Vec<_> = g.query_around([0.0, 15.0], 9.5).map(|x| x.0).collect();
-        assert_eq!(q.len(), 19); // 1 middle, 8 left, 8 right
-    }
-
-    #[test]
-    fn test_big_query_rect() {
-        let mut g: DenseGrid<()> = DenseGrid::new(10);
-
-        for i in 0..100 {
-            g.insert([i as f32, 0.0], ());
-        }
-
-        let q: Vec<_> = g
-            .query_aabb([5.5, 1.0], [15.5, -1.0])
-            .map(|x| x.0)
-            .collect();
-        assert_eq!(q.len(), 10);
-    }
-
-    #[test]
-    fn test_distance_test() {
-        let mut g: DenseGrid<()> = DenseGrid::new(10);
-        let a = g.insert([3.0, 4.0], ());
-
-        let far: Vec<_> = g.query_around([0.0, 0.0], 5.1).map(|x| x.0).collect();
-        assert_eq!(far, vec![a]);
-
-        let near: Vec<_> = g.query_around([0.0, 0.0], 4.9).map(|x| x.0).collect();
-        assert_eq!(near, vec![]);
-    }
-
-    #[test]
-    fn test_very_far() {
-        let mut g: DenseGrid<()> = DenseGrid::new(10);
-        let a = g.insert([3.0, 4.0], ());
-
-        let far: Vec<_> = g.query_around([0.0, 0.0], 5.1).map(|x| x.0).collect();
-        assert_eq!(far, vec![a]);
-    }
-
-    #[test]
-    fn test_change_position() {
-        let mut g: DenseGrid<()> = DenseGrid::new(10);
-        let a = g.insert([0.0, 0.0], ());
-
-        let before: Vec<_> = g.query_around([0.0, 0.0], 5.0).map(|x| x.0).collect();
-        assert_eq!(before, vec![a]);
-
-        g.set_position(a, [30.0, 30.0]);
-        g.maintain();
-
-        let before: Vec<_> = g.query_around([0.0, 0.0], 5.0).map(|x| x.0).collect();
-        assert_eq!(before, vec![]);
-
-        let after: Vec<_> = g.query_around([30.0, 30.0], 5.0).map(|x| x.0).collect();
-        assert_eq!(after, vec![a]);
-    }
-
-    #[test]
-    fn test_remove() {
-        let mut g: DenseGrid<()> = DenseGrid::new(10);
-        let a = g.insert([0.0, 0.0], ());
-
-        let before: Vec<_> = g.query_around([0.0, 0.0], 5.0).map(|x| x.0).collect();
-        assert_eq!(before, vec![a]);
-
-        g.remove(a);
-        let b = g.insert([0.0, 0.0], ());
-        g.maintain();
-
-        assert_eq!(g.handles().collect::<Vec<_>>(), vec![b]);
-
-        let after: Vec<_> = g.query_around([0.0, 0.0], 5.0).map(|x| x.0).collect();
-        assert_eq!(after, vec![b]);
-    }
-
-    #[test]
-    fn test_resize() {
-        let mut g: DenseGrid<()> = DenseGrid::new(10);
-        let a = g.insert([-1000.0, 0.0], ());
-
-        let q: Vec<_> = g.query_around([-1000.0, 0.0], 5.0).map(|x| x.0).collect();
-        assert_eq!(q, vec![a]);
-
-        let b = g.insert([0.0, 1000.0], ());
-
-        let q: Vec<_> = g.query_around([0.0, 1000.0], 5.0).map(|x| x.0).collect();
-        assert_eq!(q, vec![b]);
-    }
-}
-
-#[cfg(test)]
-mod testssparse {
-    use crate::SparseGrid;
-
-    #[test]
-    fn test_small_query() {
-        let mut g: SparseGrid<()> = SparseGrid::new(10);
-        let a = g.insert([5.0, 0.0], ());
-        let b = g.insert([11.0, 0.0], ());
-        let c = g.insert([5.0, 8.0], ());
-
-        let near: Vec<_> = g.query_around([6.0, 0.0], 2.0).map(|x| x.0).collect();
-        assert_eq!(near, vec![a]);
-
-        let mid: Vec<_> = g.query_around([8.0, 0.0], 4.0).map(|x| x.0).collect();
-        assert!(mid.contains(&a));
-        assert!(mid.contains(&b));
-
-        let far: Vec<_> = g.query_around([6.0, 0.0], 10.0).map(|x| x.0).collect();
-        assert!(far.contains(&a));
-        assert!(far.contains(&b));
-        assert!(far.contains(&c));
-    }
-
-    #[test]
-    fn test_big_query_around() {
-        let mut g: SparseGrid<()> = SparseGrid::new(10);
-
-        for i in 0..100 {
-            g.insert([i as f32, 0.0], ());
-        }
-
-        let q: Vec<_> = g.query_around([15.0, 0.0], 9.5).map(|x| x.0).collect();
-        assert_eq!(q.len(), 19); // 1 middle, 8 left, 8 right
-    }
-
-    #[test]
-    fn test_big_query_around_vert() {
-        let mut g = SparseGrid::new(10);
-
-        for i in 0..100 {
-            g.insert([0.0, i as f32], ());
-        }
-
-        let q: Vec<_> = g.query_around([0.0, 15.0], 9.5).map(|x| x.0).collect();
-        assert_eq!(q.len(), 19); // 1 middle, 8 left, 8 right
-    }
-
-    #[test]
-    fn test_big_query_rect() {
-        let mut g: SparseGrid<()> = SparseGrid::new(10);
-
-        for i in 0..100 {
-            g.insert([i as f32, 0.0], ());
-        }
-
-        let q: Vec<_> = g
-            .query_aabb([5.5, 1.0], [15.5, -1.0])
-            .map(|x| x.0)
-            .collect();
-        assert_eq!(q.len(), 10);
-    }
-
-    #[test]
-    fn test_distance_test() {
-        let mut g: SparseGrid<()> = SparseGrid::new(10);
-        let a = g.insert([3.0, 4.0], ());
-
-        let far: Vec<_> = g.query_around([0.0, 0.0], 5.1).map(|x| x.0).collect();
-        assert_eq!(far, vec![a]);
-
-        let near: Vec<_> = g.query_around([0.0, 0.0], 4.9).map(|x| x.0).collect();
-        assert_eq!(near, vec![]);
-    }
-
-    #[test]
-    fn test_change_position() {
-        let mut g: SparseGrid<()> = SparseGrid::new(10);
-        let a = g.insert([0.0, 0.0], ());
-
-        let before: Vec<_> = g.query_around([0.0, 0.0], 5.0).map(|x| x.0).collect();
-        assert_eq!(before, vec![a]);
-
-        g.set_position(a, [30.0, 30.0]);
-        g.maintain();
-
-        let before: Vec<_> = g.query_around([0.0, 0.0], 5.0).map(|x| x.0).collect();
-        assert_eq!(before, vec![]);
-
-        let after: Vec<_> = g.query_around([30.0, 30.0], 5.0).map(|x| x.0).collect();
-        assert_eq!(after, vec![a]);
-    }
-
-    #[test]
-    fn test_remove() {
-        let mut g: SparseGrid<()> = SparseGrid::new(10);
-        let a = g.insert([0.0, 0.0], ());
-
-        let before: Vec<_> = g.query_around([0.0, 0.0], 5.0).map(|x| x.0).collect();
-        assert_eq!(before, vec![a]);
-
-        g.remove(a);
-        let b = g.insert([0.0, 0.0], ());
-        g.maintain();
-
-        assert_eq!(g.handles().collect::<Vec<_>>(), vec![b]);
-
-        let after: Vec<_> = g.query_around([0.0, 0.0], 5.0).map(|x| x.0).collect();
-        assert_eq!(after, vec![b]);
-    }
-
-    #[test]
-    fn test_resize() {
-        let mut g: SparseGrid<()> = SparseGrid::new(10);
-        let a = g.insert([-1000.0, 0.0], ());
-
-        let q: Vec<_> = g.query_around([-1000.0, 0.0], 5.0).map(|x| x.0).collect();
-        assert_eq!(q, vec![a]);
-
-        let b = g.insert([0.0, 1000.0], ());
-
-        let q: Vec<_> = g.query_around([0.0, 1000.0], 5.0).map(|x| x.0).collect();
-        assert_eq!(q, vec![b]);
     }
 }
