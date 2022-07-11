@@ -5,9 +5,18 @@
 [![Docs.rs](https://docs.rs/flat_spatial/badge.svg)](https://docs.rs/flat_spatial)
 
 flat_spatial is a crate dedicated to dynamic spatial partitioning structures that are not based on trees
-(which are recursive) but on simple flat structures such as a grid of cells.  
+(which are recursive) but on simple flat structures such as a grid of cells (also called bins).  
 Using grids or other flat structures makes for very fast updates (constant time) and
-even fast queries, provided the cell size is adapted to the problem.
+even faster queries, provided the cell size is adapted to the problem.
+
+Picking the right cell size is very important:
+ - If the cell size is too small, the grid will be too fine and the
+   queries will be slow as they need to iterate over all matching cells.
+ - If the cell size is too big, the grid will be too coarse and the
+   queries will be slow as they need to iterate over all matching objects.
+
+Try to pick a cell size that gives an average of 10-20 objects per cell on average.
+Note that empty cells don't consume any memory, but they do consume some query time as we need to check if they exist.
 
 MSRV: 1.60
 
