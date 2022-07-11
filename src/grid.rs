@@ -14,7 +14,7 @@ new_key_type! {
 
 /// State of an object, maintain() updates the internals of the grid and resets this to Unchanged
 #[derive(Clone, Copy, Debug)]
-#[cfg_attr(feature="serde", derive(serde::Serialize, serde::Deserialize))]
+#[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
 pub enum ObjectState<V2: Vec2> {
     Unchanged,
     NewPos(V2),
@@ -24,7 +24,7 @@ pub enum ObjectState<V2: Vec2> {
 
 /// The actual object stored in the store
 #[derive(Clone, Copy)]
-#[cfg_attr(feature="serde", derive(serde::Serialize, serde::Deserialize))]
+#[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
 pub struct StoreObject<O, V2: Vec2> {
     /// User-defined object to be associated with a value
     obj: O,
@@ -91,7 +91,7 @@ pub struct StoreObject<O, V2: Vec2> {
 /// assert_eq!(g.get(a), None); // But that a doesn't exist anymore
 /// ```
 #[derive(Clone)]
-#[cfg_attr(feature="serde", derive(serde::Serialize, serde::Deserialize))]
+#[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
 pub struct Grid<O, V2: Vec2> {
     storage: SparseStorage<GridCell<V2>>,
     objects: GridObjects<O, V2>,
@@ -296,6 +296,17 @@ impl<O: Copy, V2: Vec2> Grid<O, V2> {
             })
     }
 
+    pub fn query_aabb_visitor(&self, ll_: V2, ur_: V2, mut visitor: impl FnMut(CellObject<V2>)) {
+        let ll = [ll_.x().min(ur_.x()), ll_.y().min(ur_.y())];
+        let ur = [ll_.x().max(ur_.x()), ll_.y().max(ur_.y())];
+
+        self.query_visitor(ll.into(), ur.into(), move |cell| {
+            if (ll[0]..=ur[0]).contains(&cell.1.x()) && (ll[1]..=ur[1]).contains(&cell.1.y()) {
+                visitor(cell)
+            }
+        });
+    }
+
     /// Queries for all objects in the cells intersecting an axis-aligned rectangle defined by lower left (ll) and upper right (ur)
     /// Try to keep the rect's width/height of similar magnitudes to the cell size for better performance.
     ///
@@ -318,6 +329,25 @@ impl<O: Copy, V2: Vec2> Grid<O, V2> {
         cell_range(ll_id, ur_id)
             .flat_map(move |id| self.storage.cell(id))
             .flat_map(|x| x.objs.iter().copied())
+    }
+
+    /// query_visitor is similar to query, but uses a visitor function to be slightly more performant.
+    pub fn query_visitor(&self, ll: V2, ur: V2, mut visitor: impl FnMut(CellObject<V2>)) {
+        let ll_id = self.storage.cell_id(ll);
+        let ur_id = self.storage.cell_id(ur);
+
+        for celly in ll_id.1..=ur_id.1 {
+            for cellx in ll_id.0..=ur_id.0 {
+                let cell = match self.storage.cell((cellx, celly)) {
+                    Some(x) => x,
+                    None => continue,
+                };
+
+                for h in cell.objs.iter() {
+                    visitor(*h);
+                }
+            }
+        }
     }
 
     /// Returns the number of objects currently available

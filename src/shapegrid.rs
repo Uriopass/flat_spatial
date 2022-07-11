@@ -13,7 +13,7 @@ new_key_type! {
 
 /// The actual object stored in the store
 #[derive(Clone, Copy)]
-#[cfg_attr(feature="serde", derive(serde::Serialize, serde::Deserialize))]
+#[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
 pub struct StoreObject<O: Copy, AB: AABB> {
     /// User-defined object to be associated with a value
     pub obj: O,
@@ -56,7 +56,7 @@ pub struct StoreObject<O: Copy, AB: AABB> {
 /// // Use handle however you want
 /// ```
 #[derive(Clone)]
-#[cfg_attr(feature="serde", derive(serde::Serialize, serde::Deserialize))]
+#[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
 pub struct AABBGrid<O: Copy, AB: AABB> {
     storage: SparseStorage<ShapeGridCell>,
     objects: ShapeGridObjects<O, AB>,
@@ -102,19 +102,32 @@ impl<O: Copy, AB: AABB> AABBGrid<O, AB> {
 
         let storage = &mut self.storage;
 
-        cells_apply(storage, &obj.aabb, |cell, _| {
+        let old_ll = storage.cell_mut(obj.aabb.ll()).0;
+        let old_ur = storage.cell_mut(obj.aabb.ur()).0;
+
+        let ll = storage.cell_mut(aabb.ll()).0;
+        let ur = storage.cell_mut(aabb.ur()).0;
+
+        obj.aabb = aabb;
+
+        if old_ll == ll && old_ur == ur {
+            return;
+        }
+
+        for id in cell_range(old_ll, old_ur) {
+            let cell = storage.cell_mut_unchecked(id);
             let p = match cell.objs.iter().position(|(x, _)| *x == handle) {
                 Some(x) => x,
                 None => return,
             };
             cell.objs.swap_remove(p);
-        });
+        }
 
-        cells_apply(storage, &aabb, |cell, sing_cell| {
+        let sing_cell = ll == ur;
+        for id in cell_range(ll, ur) {
+            let cell = storage.cell_mut_unchecked(id);
             cell.objs.push((handle, sing_cell))
-        });
-
-        obj.aabb = aabb;
+        }
     }
 
     /// Removes an object from the grid.
@@ -160,12 +173,15 @@ impl<O: Copy, AB: AABB> AABBGrid<O, AB> {
 
     /// Queries for objects intersecting a given AABB.
     pub fn query(&self, aabb: AB) -> impl Iterator<Item = (ShapeGridHandle, &AB, &O)> + '_ {
-        self.query_broad(aabb)
-            .map(move |h| {
-                let obj = &self.objects[h];
-                (h, &obj.aabb, &obj.obj)
-            })
-            .filter(move |&(_, x, _)| aabb.intersects(x))
+        self.query_broad(aabb).filter_map(move |h| {
+            // Safety: All objects in the cells are guaranteed to be valid.
+            let obj = unsafe { self.objects.get_unchecked(h) };
+            if aabb.intersects(&obj.aabb) {
+                Some((h, &obj.aabb, &obj.obj))
+            } else {
+                None
+            }
+        })
     }
 
     /// Queries for all objects in the cells intersecting the given AABB
@@ -183,20 +199,68 @@ impl<O: Copy, AB: AABB> AABBGrid<O, AB> {
             QueryIter::Simple(iter)
         } else {
             QueryIter::Dedup(
-                fnv::FnvHashSet::with_capacity_and_hasher(5, fnv::FnvBuildHasher::default()),
+                fnv::FnvHashSet::with_hasher(fnv::FnvBuildHasher::default()),
                 iter,
             )
         }
     }
 
+    /// Queries for objects intersecting a given AABB.
+    /// Uses a visitor for slightly better performance.
+    pub fn query_visitor(&self, aabb: AB, mut visitor: impl FnMut(ShapeGridHandle, &AB, &O)) {
+        self.query_broad_visitor(aabb, move |h| {
+            // Safety: All objects in the cells are guaranteed to be valid.
+            let obj = unsafe { self.objects.get_unchecked(h) };
+            if aabb.intersects(&obj.aabb) {
+                visitor(h, &obj.aabb, &obj.obj)
+            }
+        })
+    }
+
+    /// Queries for all objects in the cells intersecting the given AABB
+    /// Uses a visitor for slightly better performance.
+    pub fn query_broad_visitor(&self, bbox: AB, mut visitor: impl FnMut(ShapeGridHandle)) {
+        let storage = &self.storage;
+
+        let ll_id = storage.cell_id(bbox.ll());
+        let ur_id = storage.cell_id(bbox.ur());
+
+        if ll_id == ur_id {
+            let cell = storage.cell(ll_id).unwrap();
+            for (h, _) in cell.objs.iter() {
+                visitor(*h);
+            }
+            return;
+        }
+
+        let mut dedup = fnv::FnvHashSet::with_hasher(fnv::FnvBuildHasher::default());
+
+        for celly in ll_id.1..=ur_id.1 {
+            for cellx in ll_id.0..=ur_id.0 {
+                let cell = match storage.cell((cellx, celly)) {
+                    Some(x) => x,
+                    None => continue,
+                };
+
+                for (h, sing_cell) in cell.objs.iter() {
+                    if *sing_cell {
+                        visitor(*h);
+                        continue;
+                    }
+                    if dedup.insert(*h) {
+                        visitor(*h);
+                    }
+                }
+            }
+        }
+    }
+
     /// Returns the number of objects currently available
-    /// (removals that were not confirmed with maintain() are still counted)
     pub fn len(&self) -> usize {
         self.objects.len()
     }
 
     /// Checks if the grid contains objects or not
-    /// (removals that were not confirmed with maintain() are still counted)
     pub fn is_empty(&self) -> bool {
         self.objects.is_empty()
     }

@@ -2,10 +2,7 @@ use crate::Vec2;
 
 pub type CellIdx = (i32, i32);
 
-pub(crate) fn cell_range(
-    (min_x, min_y): CellIdx,
-    (max_x, max_y): CellIdx,
-) -> impl Iterator<Item = CellIdx> {
+pub(crate) fn cell_range((min_x, min_y): CellIdx, (max_x, max_y): CellIdx) -> XYRange {
     if min_x > max_x || min_y > max_y {
         return XYRange {
             min_x: 0,
@@ -28,7 +25,7 @@ pub(crate) fn cell_range(
 /// It is Sparse because cells are eagerly allocated, and cleaned when they are empty.
 /// It implements the Storage trait.
 #[derive(Clone)]
-#[cfg_attr(feature="serde", derive(serde::Serialize, serde::Deserialize))]
+#[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
 pub struct SparseStorage<T: Default> {
     cell_size: i32,
     cells: fnv::FnvHashMap<CellIdx, T>,
@@ -76,6 +73,7 @@ impl<T: Default> SparseStorage<T> {
     }
 }
 
+#[derive(Eq, PartialEq)]
 pub struct XYRange {
     min_x: i32,
     max_x: i32,

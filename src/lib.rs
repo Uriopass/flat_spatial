@@ -2,8 +2,10 @@
 //! `flat_spatial` is a crate dedicated to spatial partitioning structures that are not based on trees
 //! (which are recursive) but on simple flat structures such as grids.
 //!
-//! Both `DenseGrid` and `SparseGrid` partition the space using cells of user defined width.
-//! `DenseGrid` uses a Vec of cells and `SparseGrid` a `FastMap` (so cells are lazily allocated).
+//! `Grid` partitions the space using cells of user defined width.
+//! `AABBGrid` partitions the space using cells too, but stores Axis-Aligned Bounding Boxes.
+//!
+//! Check `Grid` and `AABBGrid` docs for more information.
 //!
 
 pub mod cell;
@@ -43,20 +45,22 @@ pub trait AABB: Copy {
 }
 
 impl Vec2 for [f32; 2] {
+    #[inline]
     fn x(&self) -> f32 {
         unsafe { *self.get_unchecked(0) }
     }
 
+    #[inline]
     fn y(&self) -> f32 {
         unsafe { *self.get_unchecked(1) }
     }
 }
 
-#[cfg(feature="euclid")]
+#[cfg(feature = "euclid")]
 mod euclid_impl {
-    use euclid::{Point2D, Vector2D};
     use super::Vec2;
     use super::AABB;
+    use euclid::{Point2D, Vector2D};
 
     impl<U> Vec2 for Point2D<f32, U> {
         fn x(&self) -> f32 {
@@ -87,12 +91,12 @@ mod euclid_impl {
     }
 }
 
-#[cfg(feature="parry2d")]
+#[cfg(feature = "parry2d")]
 mod parry2d_impl {
-    use parry2d::math::{Point, Vector};
-    use parry2d::bounding_volume::AABB;
     use super::Vec2;
     use super::AABB as AABBTrait;
+    use parry2d::bounding_volume::AABB;
+    use parry2d::math::{Point, Vector};
 
     impl Vec2 for Point<f32> {
         fn x(&self) -> f32 {

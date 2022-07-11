@@ -6,7 +6,7 @@ pub type CellObject<V2> = (GridHandle, V2);
 
 /// A single cell of the grid, can be empty
 #[derive(Clone)]
-#[cfg_attr(feature="serde", derive(serde::Serialize, serde::Deserialize))]
+#[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
 pub struct GridCell<V2: Vec2> {
     pub objs: Vec<CellObject<V2>>,
     pub dirty: bool,
@@ -22,7 +22,8 @@ impl<V2: Vec2> Default for GridCell<V2> {
 }
 
 #[derive(Default, Clone)]
-#[cfg_attr(feature="serde", derive(serde::Serialize, serde::Deserialize))]
+#[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
+/// A single cell of the shape grid, can be empty
 pub struct ShapeGridCell {
     pub objs: Vec<(ShapeGridHandle, bool)>,
 }
