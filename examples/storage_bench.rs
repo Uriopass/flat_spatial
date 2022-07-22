@@ -1,13 +1,12 @@
-use criterion::{black_box, criterion_group, criterion_main, Criterion};
+use criterion::{black_box, Criterion};
 use flat_spatial::{AABBGrid, Grid};
 use rand::{Rng, SeedableRng};
-use rstar::Point;
 use rstar::{RTree, RTreeObject};
 use std::time::{Duration, Instant};
 
-// Density: 0.4 pop/m^2
-const QUERY_POP: i32 = 100_000;
-const SIZE: f32 = 500.0;
+const QUERY_POP: i32 = 500_000;
+const SIZE: f32 = 1000.0;
+const DENSITY: f32 = (QUERY_POP as f32) / (SIZE * SIZE);
 
 // Data to store along the objects. Here about 20 bytes
 type Data = [f32; 5];
@@ -326,6 +325,7 @@ fn maintain(c: &mut Criterion) {
 }
 
 fn main() {
+    println!("Density is {}", DENSITY);
     let mut pos: Vec<(f64, f64)> = vec![];
 
     let mut rng = rand::rngs::StdRng::seed_from_u64(1);
@@ -335,7 +335,7 @@ fn main() {
         pos.push(((SIZE * r[0]) as f64, (SIZE * r[1]) as f64));
     });
 
-    let mut tree = kdbush::KDBush::create(pos, 10);
+    let tree = kdbush::KDBush::create(pos, 10);
 
     let (t, hash) = query_5_kdbush(&tree, 300_000);
     println!(

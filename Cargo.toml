@@ -27,6 +27,7 @@ rand = "0.7.3"
 fastrand = "1.3.3"
 kdbush = "0.2.0"
 criterion = "0.3"
+euclid = "0.22.7"
 
 [[example]]
 name = "storage_bench"

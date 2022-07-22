@@ -9,7 +9,7 @@ struct Car {
 
 fn main() {
     // Creates the grid with cell size 10
-    let mut g: Grid<Car> = Grid::new(10);
+    let mut g: Grid<Car, [f32; 2]> = Grid::new(10);
 
     // create objects in the range x: [-50..50], y: [-50..50]
     for _ in 0..100 {
@@ -31,7 +31,7 @@ fn main() {
     }
 }
 
-fn update_loop(g: &mut Grid<Car>) {
+fn update_loop(g: &mut Grid<Car, [f32; 2]>) {
     println!("{} cars left", g.len());
 
     let handles: Vec<_> = g.handles().collect();
@@ -44,7 +44,7 @@ fn update_loop(g: &mut Grid<Car>) {
             if other_h == h {
                 continue;
             }
-            if (other_pos.x - pos.x).powi(2) + (other_pos.y - pos.y).powi(2) < 2.0 * 2.0 {
+            if (other_pos[0] - pos[0]).powi(2) + (other_pos[1] - pos[1]).powi(2) < 2.0 * 2.0 {
                 collided = true;
                 break;
             }
@@ -59,7 +59,7 @@ fn update_loop(g: &mut Grid<Car>) {
     for h in handles {
         let (pos, car) = g.get(h).unwrap();
         let dir = car.direction;
-        g.set_position(h, [pos.x + dir[0], pos.y + dir[1]])
+        g.set_position(h, [pos[0] + dir[0], pos[1] + dir[1]])
     }
 
     // Handle position updates and removals
