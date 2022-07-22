@@ -1,14 +1,14 @@
-use crate::cell::ShapeGridCell;
+use crate::cell::AABBGridCell;
 use crate::storage::{cell_range, SparseStorage};
 use crate::AABB;
 use slotmap::{new_key_type, SlotMap};
 
-pub type ShapeGridObjects<O, AB> = SlotMap<ShapeGridHandle, StoreObject<O, AB>>;
+pub type AABBGridObjects<O, AB> = SlotMap<AABBGridHandle, StoreObject<O, AB>>;
 
 new_key_type! {
     /// This handle is used to modify the associated object or to update its position.
-    /// It is returned by the _insert_ method of a ShapeGrid.
-    pub struct ShapeGridHandle;
+    /// It is returned by the _insert_ method of a AABBGrid.
+    pub struct AABBGridHandle;
 }
 
 /// The actual object stored in the store
@@ -20,17 +20,17 @@ pub struct StoreObject<O: Copy, AB: AABB> {
     pub aabb: AB,
 }
 
-/// `ShapeGrid` is a generic aabb-based spatial partitioning structure that uses a generic storage of cells which acts as a
+/// `AABBGrid` is a generic aabb-based spatial partitioning structure that uses a generic storage of cells which acts as a
 /// grid instead of a tree.
 ///
 /// ## Fast queries
-/// In theory, `ShapeGrid` should be faster than a quadtree/r-tree because it has no log costs
+/// In theory, `AABBGrid` should be faster than a quadtree/r-tree because it has no log costs
 /// (calculating the cells around a point is trivial).  
 /// However, it only works if the cell size is adapted to the problem, much like how a tree has to
 /// be balanced to be efficient.  
 ///
 /// ## Dynamicity
-/// `ShapeGrid's` allows eager removals and position updates, however for big aabbs (spanning many cells)
+/// `AABBGrid's` allows eager removals and position updates, however for big aabbs (spanning many cells)
 /// this can be expensive, so beware.
 ///
 /// Use this grid for mostly static objects with the occasional removal/position update if needed.
@@ -58,8 +58,8 @@ pub struct StoreObject<O: Copy, AB: AABB> {
 #[derive(Clone)]
 #[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
 pub struct AABBGrid<O: Copy, AB: AABB> {
-    storage: SparseStorage<ShapeGridCell>,
-    objects: ShapeGridObjects<O, AB>,
+    storage: SparseStorage<AABBGridCell>,
+    objects: AABBGridObjects<O, AB>,
 }
 
 impl<O: Copy, AB: AABB> AABBGrid<O, AB> {
@@ -68,7 +68,7 @@ impl<O: Copy, AB: AABB> AABBGrid<O, AB> {
     pub fn new(cell_size: i32) -> Self {
         Self {
             storage: SparseStorage::new(cell_size),
-            objects: ShapeGridObjects::default(),
+            objects: AABBGridObjects::default(),
         }
     }
 
@@ -81,7 +81,7 @@ impl<O: Copy, AB: AABB> AABBGrid<O, AB> {
 
     /// Inserts a new object with a position and an associated object
     /// Returns the unique and stable handle to be used with `get_obj`
-    pub fn insert(&mut self, aabb: AB, obj: O) -> ShapeGridHandle {
+    pub fn insert(&mut self, aabb: AB, obj: O) -> AABBGridHandle {
         let Self {
             storage, objects, ..
         } = self;
@@ -94,7 +94,7 @@ impl<O: Copy, AB: AABB> AABBGrid<O, AB> {
     }
 
     /// Updates the aabb of an object.
-    pub fn set_aabb(&mut self, handle: ShapeGridHandle, aabb: AB) {
+    pub fn set_aabb(&mut self, handle: AABBGridHandle, aabb: AB) {
         let obj = self
             .objects
             .get_mut(handle)
@@ -131,7 +131,7 @@ impl<O: Copy, AB: AABB> AABBGrid<O, AB> {
     }
 
     /// Removes an object from the grid.
-    pub fn remove(&mut self, handle: ShapeGridHandle) -> Option<O> {
+    pub fn remove(&mut self, handle: AABBGridHandle) -> Option<O> {
         let st = self.objects.remove(handle)?;
 
         let storage = &mut self.storage;
@@ -147,7 +147,7 @@ impl<O: Copy, AB: AABB> AABBGrid<O, AB> {
     }
 
     /// Iterate over all handles
-    pub fn handles(&self) -> impl Iterator<Item = ShapeGridHandle> + '_ {
+    pub fn handles(&self) -> impl Iterator<Item = AABBGridHandle> + '_ {
         self.objects.keys()
     }
 
@@ -157,22 +157,22 @@ impl<O: Copy, AB: AABB> AABBGrid<O, AB> {
     }
 
     /// Returns a reference to the associated object and its position, using the handle.
-    pub fn get(&self, id: ShapeGridHandle) -> Option<&StoreObject<O, AB>> {
+    pub fn get(&self, id: AABBGridHandle) -> Option<&StoreObject<O, AB>> {
         self.objects.get(id)
     }
 
     /// Returns a mutable reference to the associated object and its position, using the handle.
-    pub fn get_mut(&mut self, id: ShapeGridHandle) -> Option<&mut StoreObject<O, AB>> {
+    pub fn get_mut(&mut self, id: AABBGridHandle) -> Option<&mut StoreObject<O, AB>> {
         self.objects.get_mut(id)
     }
 
     /// The underlying storage
-    pub fn storage(&self) -> &SparseStorage<ShapeGridCell> {
+    pub fn storage(&self) -> &SparseStorage<AABBGridCell> {
         &self.storage
     }
 
     /// Queries for objects intersecting a given AABB.
-    pub fn query(&self, aabb: AB) -> impl Iterator<Item = (ShapeGridHandle, &AB, &O)> + '_ {
+    pub fn query(&self, aabb: AB) -> impl Iterator<Item = (AABBGridHandle, &AB, &O)> + '_ {
         self.query_broad(aabb).filter_map(move |h| {
             // Safety: All objects in the cells are guaranteed to be valid.
             let obj = unsafe { self.objects.get_unchecked(h) };
@@ -185,7 +185,7 @@ impl<O: Copy, AB: AABB> AABBGrid<O, AB> {
     }
 
     /// Queries for all objects in the cells intersecting the given AABB
-    pub fn query_broad(&self, bbox: AB) -> impl Iterator<Item = ShapeGridHandle> + '_ {
+    pub fn query_broad(&self, bbox: AB) -> impl Iterator<Item = AABBGridHandle> + '_ {
         let storage = &self.storage;
 
         let ll_id = storage.cell_id(bbox.ll());
@@ -207,7 +207,7 @@ impl<O: Copy, AB: AABB> AABBGrid<O, AB> {
 
     /// Queries for objects intersecting a given AABB.
     /// Uses a visitor for slightly better performance.
-    pub fn query_visitor(&self, aabb: AB, mut visitor: impl FnMut(ShapeGridHandle, &AB, &O)) {
+    pub fn query_visitor(&self, aabb: AB, mut visitor: impl FnMut(AABBGridHandle, &AB, &O)) {
         self.query_broad_visitor(aabb, move |h| {
             // Safety: All objects in the cells are guaranteed to be valid.
             let obj = unsafe { self.objects.get_unchecked(h) };
@@ -219,7 +219,7 @@ impl<O: Copy, AB: AABB> AABBGrid<O, AB> {
 
     /// Queries for all objects in the cells intersecting the given AABB
     /// Uses a visitor for slightly better performance.
-    pub fn query_broad_visitor(&self, bbox: AB, mut visitor: impl FnMut(ShapeGridHandle)) {
+    pub fn query_broad_visitor(&self, bbox: AB, mut visitor: impl FnMut(AABBGridHandle)) {
         let storage = &self.storage;
 
         let ll_id = storage.cell_id(bbox.ll());
@@ -267,9 +267,9 @@ impl<O: Copy, AB: AABB> AABBGrid<O, AB> {
 }
 
 fn cells_apply<AB: AABB>(
-    storage: &mut SparseStorage<ShapeGridCell>,
+    storage: &mut SparseStorage<AABBGridCell>,
     bbox: &AB,
-    f: impl Fn(&mut ShapeGridCell, bool),
+    f: impl Fn(&mut AABBGridCell, bool),
 ) {
     let ll = storage.cell_mut(bbox.ll()).0;
     let ur = storage.cell_mut(bbox.ur()).0;
@@ -278,13 +278,13 @@ fn cells_apply<AB: AABB>(
     }
 }
 
-enum QueryIter<T: Iterator<Item = (ShapeGridHandle, bool)>> {
+enum QueryIter<T: Iterator<Item = (AABBGridHandle, bool)>> {
     Simple(T),
-    Dedup(fnv::FnvHashSet<ShapeGridHandle>, T),
+    Dedup(fnv::FnvHashSet<AABBGridHandle>, T),
 }
 
-impl<T: Iterator<Item = (ShapeGridHandle, bool)>> Iterator for QueryIter<T> {
-    type Item = ShapeGridHandle;
+impl<T: Iterator<Item = (AABBGridHandle, bool)>> Iterator for QueryIter<T> {
+    type Item = AABBGridHandle;
 
     fn next(&mut self) -> Option<Self::Item> {
         match self {

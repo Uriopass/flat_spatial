@@ -1,5 +1,5 @@
 use crate::grid::{GridHandle, GridObjects, ObjectState};
-use crate::shapegrid::ShapeGridHandle;
+use crate::aabbgrid::AABBGridHandle;
 use crate::Vec2;
 
 pub type CellObject<V2> = (GridHandle, V2);
@@ -24,8 +24,8 @@ impl<V2: Vec2> Default for GridCell<V2> {
 #[derive(Default, Clone)]
 #[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
 /// A single cell of the shape grid, can be empty
-pub struct ShapeGridCell {
-    pub objs: Vec<(ShapeGridHandle, bool)>,
+pub struct AABBGridCell {
+    pub objs: Vec<(AABBGridHandle, bool)>,
 }
 
 impl<V2: Vec2> GridCell<V2> {

@@ -10,11 +10,11 @@
 
 pub mod cell;
 pub mod grid;
-pub mod shapegrid;
+pub mod aabbgrid;
 pub mod storage;
 
 pub use grid::Grid;
-pub use shapegrid::AABBGrid;
+pub use aabbgrid::AABBGrid;
 
 pub trait Vec2: From<[f32; 2]> + Copy {
     fn x(&self) -> f32;
