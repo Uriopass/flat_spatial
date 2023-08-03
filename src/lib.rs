@@ -95,7 +95,7 @@ mod euclid_impl {
 mod parry2d_impl {
     use super::Vec2;
     use super::AABB as AABBTrait;
-    use parry2d::bounding_volume::AABB;
+    use parry2d::bounding_volume::Aabb;
     use parry2d::math::{Point, Vector};
 
     impl Vec2 for Point<f32> {
@@ -116,7 +116,7 @@ mod parry2d_impl {
         }
     }
 
-    impl AABBTrait for AABB {
+    impl AABBTrait for Aabb {
         type V2 = Point<f32>;
         fn ll(&self) -> Self::V2 {
             self.mins

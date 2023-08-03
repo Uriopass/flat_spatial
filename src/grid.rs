@@ -1,7 +1,7 @@
 use crate::cell::{CellObject, GridCell};
 use crate::storage::{cell_range, CellIdx, SparseStorage};
 use crate::Vec2;
-use slotmap::{new_key_type, SlotMap};
+use slotmapd::{new_key_type, SlotMap};
 use std::marker::PhantomData;
 
 pub type GridObjects<O, V2> = SlotMap<GridHandle, StoreObject<O, V2>>;

@@ -1,7 +1,7 @@
 use crate::cell::AABBGridCell;
 use crate::storage::{cell_range, SparseStorage};
 use crate::AABB;
-use slotmap::{new_key_type, SlotMap};
+use slotmapd::{new_key_type, SlotMap};
 
 pub type AABBGridObjects<O, AB> = SlotMap<AABBGridHandle, StoreObject<O, AB>>;
 
