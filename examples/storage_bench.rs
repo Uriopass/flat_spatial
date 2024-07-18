@@ -110,13 +110,16 @@ fn query_5_shapegrid(g: &AABBGrid<Data, AABB>, iter: u64) -> (Duration, u64) {
 
     for _ in 0..iter {
         let pos = [rng.gen::<f32>() * SIZE, rng.gen::<f32>() * SIZE];
-        grid.query_visitor(AABB {
-            ll: [pos[0] - 5.0, pos[1] - 5.0],
-            ur: [pos[0] + 5.0, pos[1] + 5.0],
-        }, |x, _, _| {
-            hashres += 1;
-            black_box(x);
-        })
+        grid.query_visitor(
+            AABB {
+                ll: [pos[0] - 5.0, pos[1] - 5.0],
+                ur: [pos[0] + 5.0, pos[1] + 5.0],
+            },
+            |x, _, _| {
+                hashres += 1;
+                black_box(x);
+            },
+        )
     }
 
     (start.elapsed(), hashres)

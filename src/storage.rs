@@ -53,7 +53,7 @@ impl<T: Default> SparseStorage<T> {
     }
 
     pub fn cell_mut<V2: Vec2>(&mut self, pos: V2) -> (CellIdx, &mut T) {
-         let id = self.cell_id(pos);
+        let id = self.cell_id(pos);
         (id, self.cells.entry(id).or_default())
     }
 

@@ -8,13 +8,13 @@
 //! Check `Grid` and `AABBGrid` docs for more information.
 //!
 
+pub mod aabbgrid;
 pub mod cell;
 pub mod grid;
-pub mod aabbgrid;
 pub mod storage;
 
-pub use grid::Grid;
 pub use aabbgrid::AABBGrid;
+pub use grid::Grid;
 
 pub trait Vec2: From<[f32; 2]> + Copy {
     fn x(&self) -> f32;

@@ -1,5 +1,5 @@
-use crate::grid::{GridHandle, GridObjects, ObjectState};
 use crate::aabbgrid::AABBGridHandle;
+use crate::grid::{GridHandle, GridObjects, ObjectState};
 use crate::Vec2;
 
 pub type CellObject<V2> = (GridHandle, V2);

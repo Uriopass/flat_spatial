@@ -185,7 +185,12 @@ impl<O: Copy, V2: Vec2> Grid<O, V2> {
 
         let cell = self.storage.cell_mut_unchecked(obj.cell_id);
 
-        cell.objs.retain(|&(h, _)| h != handle);
+        for i in 0..cell.objs.len() {
+            if cell.objs[i].0 == handle {
+                cell.objs.swap_remove(i);
+                break;
+            }
+        }
 
         Some(obj.obj)
     }
@@ -202,6 +207,10 @@ impl<O: Copy, V2: Vec2> Grid<O, V2> {
     /// Maintains the world, updating all the positions (and moving them to corresponding cells)
     /// and removing necessary objects and empty cells.
     /// Runs in linear time O(N) where N is the number of objects.
+    ///
+    /// If you need maintain to be deterministic (for example, for networked games),
+    /// use maintain_deterministic which sorts the relocations
+    ///
     /// # Example
     /// ```rust
     /// use flat_spatial::Grid;
@@ -225,6 +234,27 @@ impl<O: Copy, V2: Vec2> Grid<O, V2> {
             cell.maintain(objects, to_relocate);
             cell.objs.is_empty()
         });
+
+        for (handle, pos) in to_relocate.drain(..) {
+            storage.cell_mut(pos).1.objs.push((handle, pos));
+        }
+    }
+
+    /// Same as maintain() but deterministic by sorting the relocations
+    pub fn maintain_deterministic(&mut self) {
+        let Self {
+            storage,
+            objects,
+            to_relocate,
+            ..
+        } = self;
+
+        storage.modify(|cell| {
+            cell.maintain(objects, to_relocate);
+            cell.objs.is_empty()
+        });
+
+        to_relocate.sort_unstable_by_key(|obj| obj.0);
 
         for (handle, pos) in to_relocate.drain(..) {
             storage.cell_mut(pos).1.objs.push((handle, pos));

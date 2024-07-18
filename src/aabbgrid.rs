@@ -136,11 +136,12 @@ impl<O: Copy, AB: AABB> AABBGrid<O, AB> {
 
         let storage = &mut self.storage;
         cells_apply(storage, &st.aabb, |cell, _| {
-            let p = match cell.objs.iter().position(|(x, _)| *x == handle) {
-                Some(x) => x,
-                None => return,
-            };
-            cell.objs.swap_remove(p);
+            for i in 0..cell.objs.len() {
+                if cell.objs[i].0 == handle {
+                    cell.objs.swap_remove(i);
+                    return;
+                }
+            }
         });
 
         Some(st.obj)

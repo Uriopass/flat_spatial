@@ -1,6 +1,6 @@
+use euclid::{Rect, Size2D};
 use flat_spatial::AABBGrid;
 use std::time::{Duration, Instant};
-use euclid::{Rect, Size2D};
 
 type Data = [f32; 5];
 
@@ -14,7 +14,10 @@ fn query_setup_shape(s: i32) -> AABBGrid<Data, Rect<f32, ()>> {
     let mut grid = AABBGrid::new(s);
     (0..QUERY_POP).for_each(|_| {
         let r = rand::random::<[f32; 7]>();
-        grid.insert(Rect::new((SIZE * r[0], SIZE * r[1]).into(), Size2D::zero()), [r[2], r[3], r[4], r[5], r[6]]);
+        grid.insert(
+            Rect::new((SIZE * r[0], SIZE * r[1]).into(), Size2D::zero()),
+            [r[2], r[3], r[4], r[5], r[6]],
+        );
     });
     grid
 }
